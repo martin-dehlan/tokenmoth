@@ -1,0 +1,20 @@
+[package]
+name = "tokenrat-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tokenrat"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+dirs = "5"
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }

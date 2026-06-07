@@ -1,0 +1,26 @@
+# Rust
+/backend/target/
+target/
+**/*.rs.bk
+*.pdb
+
+# Env / secrets
+.env
+.env.local
+*.local.env
+
+# Node / Next.js
+node_modules/
+/frontend/.next/
+/frontend/out/
+/frontend/build/
+/frontend/next-env.d.ts.bak
+.turbo/
+
+# OS / editor
+.DS_Store
+*.log
+npm-debug.log*
+yarn-error.log*
+.idea/
+.vscode/
