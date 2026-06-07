@@ -55,6 +55,17 @@ async fn main() -> anyhow::Result<()> {
 
     sqlx::migrate!("../../migrations").run(&db).await?;
 
+    // Optional single-user bootstrap: self-seed a user + API key on startup so a
+    // fresh deploy (e.g. docker-compose) is usable immediately. Idempotent.
+    if let Ok(key) = std::env::var("TOKENRAT_BOOTSTRAP_KEY") {
+        if !key.is_empty() {
+            let email = std::env::var("TOKENRAT_BOOTSTRAP_EMAIL")
+                .unwrap_or_else(|_| "me@tokenrat.local".to_string());
+            bootstrap_key(&db, &key, &email).await?;
+            tracing::info!("bootstrapped api key for {email}");
+        }
+    }
+
     let state = AppState { db };
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -72,6 +83,27 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("tokenrat-api listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
+    Ok(())
+}
+
+/// Idempotently ensure a user + API key exist (single-user bootstrap).
+async fn bootstrap_key(db: &PgPool, key: &str, email: &str) -> anyhow::Result<()> {
+    let user_id: uuid::Uuid = sqlx::query_scalar(
+        "insert into users (email) values ($1)
+         on conflict (email) do update set email = excluded.email
+         returning id",
+    )
+    .bind(email)
+    .fetch_one(db)
+    .await?;
+    sqlx::query(
+        "insert into api_keys (key, user_id, label) values ($1, $2, 'bootstrap')
+         on conflict (key) do nothing",
+    )
+    .bind(key)
+    .bind(user_id)
+    .execute(db)
+    .await?;
     Ok(())
 }
 
