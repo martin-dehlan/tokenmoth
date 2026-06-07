@@ -1,10 +1,9 @@
 import {
   RepoUsage,
   breakerLoad,
-  estimatedCost,
   fmtTokens,
   fmtUsd,
-  totalTokens,
+  relativeTime,
   Load,
 } from "@/lib/data";
 
@@ -17,7 +16,7 @@ const LOAD_STYLE: Record<Load, { bar: string; label: string; text: string }> = {
 
 // A single circuit breaker switch in the "Sicherungskasten".
 export default function RepoBreaker({ repo }: { repo: RepoUsage }) {
-  const load = breakerLoad(repo);
+  const load = breakerLoad(repo.costUsd);
   const s = LOAD_STYLE[load];
   const on = load !== "tripped";
 
@@ -48,19 +47,19 @@ export default function RepoBreaker({ repo }: { repo: RepoUsage }) {
 
       {/* readout */}
       <div className="flex items-baseline justify-between">
-        <span className={`text-xl font-extrabold ${s.text}`}>{fmtUsd(estimatedCost(repo))}</span>
+        <span className={`text-xl font-extrabold ${s.text}`}>{fmtUsd(repo.costUsd)}</span>
         <span className={`text-[10px] font-bold tracking-widest ${s.text}`}>{s.label}</span>
       </div>
 
       <dl className="text-[11px] text-white/60 grid grid-cols-2 gap-x-3 gap-y-1">
         <dt>tokens</dt>
-        <dd className="text-right text-white">{fmtTokens(totalTokens(repo))}</dd>
+        <dd className="text-right text-white">{fmtTokens(repo.totalTokens)}</dd>
         <dt>sessions</dt>
         <dd className="text-right text-white">{repo.sessions}</dd>
         <dt>cache rd</dt>
         <dd className="text-right text-white">{fmtTokens(repo.cacheReadTokens)}</dd>
         <dt>last</dt>
-        <dd className="text-right text-white">{repo.lastActive}</dd>
+        <dd className="text-right text-white">{relativeTime(repo.lastActive)}</dd>
       </dl>
     </div>
   );
