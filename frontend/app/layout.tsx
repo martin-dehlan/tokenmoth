@@ -9,7 +9,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "tokenrat — Claude Code token tracker",
+  title: "TokenMoth — Claude Code token tracker",
   description: "Track, aggregate and visualize Claude Code token usage & cost per repo.",
 };
 

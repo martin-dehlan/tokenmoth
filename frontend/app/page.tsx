@@ -40,7 +40,7 @@ export default async function Dashboard() {
         {!live && (
           <div className="mt-5 text-[11px] text-warn flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-warn inline-block" />
-            demo mode — {error ?? "no live connection"}. set TOKENRAT_API_URL + TOKENRAT_API_KEY to
+            demo mode — {error ?? "no live connection"}. set TOKENMOTH_API_URL + TOKENMOTH_API_KEY to
             go live.
           </div>
         )}
@@ -102,7 +102,7 @@ export default async function Dashboard() {
 
             {ranked.length === 0 ? (
               <div className="text-[12px] text-faint py-8 text-center">
-                no circuits yet — run <span className="font-mono text-accent">tokenrat setup</span>{" "}
+                no circuits yet — run <span className="font-mono text-accent">tokenmoth setup</span>{" "}
                 and finish a session.
               </div>
             ) : (

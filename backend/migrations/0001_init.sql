@@ -1,4 +1,4 @@
--- tokenrat initial schema
+-- tokenmoth initial schema
 create extension if not exists "uuid-ossp";
 
 create table if not exists users (
@@ -9,7 +9,7 @@ create table if not exists users (
 
 -- API keys are the ingestion credential (sent as Bearer token, never in query string).
 create table if not exists api_keys (
-    key         text primary key,                    -- e.g. tf_user_123
+    key         text primary key,                    -- e.g. tm_user_123
     user_id     uuid not null references users(id) on delete cascade,
     label       text,
     created_at  timestamptz not null default now(),

@@ -28,8 +28,8 @@ type ApiRepo = {
   last_active: string;
 };
 
-const API_URL = process.env.TOKENRAT_API_URL ?? "http://localhost:8080";
-const API_KEY = process.env.TOKENRAT_API_KEY ?? "";
+const API_URL = process.env.TOKENMOTH_API_URL ?? "http://localhost:8080";
+const API_KEY = process.env.TOKENMOTH_API_KEY ?? "";
 
 export type ReposResult = {
   repos: RepoUsage[];
@@ -58,7 +58,7 @@ export async function fetchRepos(since = "30d"): Promise<ReposResult> {
       repos: DEMO_REPOS,
       since,
       source: "demo",
-      error: "TOKENRAT_API_KEY not set — showing demo data",
+      error: "TOKENMOTH_API_KEY not set — showing demo data",
     };
   }
   try {
@@ -137,7 +137,7 @@ function withTotals(
 }
 
 export const DEMO_REPOS: RepoUsage[] = [
-  { repo: "tokenrat", sessions: 42, inputTokens: 1_240_000, outputTokens: 880_000, cacheReadTokens: 9_300_000, cacheCreationTokens: 420_000, lastActive: "2m ago" },
+  { repo: "tokenmoth", sessions: 42, inputTokens: 1_240_000, outputTokens: 880_000, cacheReadTokens: 9_300_000, cacheCreationTokens: 420_000, lastActive: "2m ago" },
   { repo: "cybermusic", sessions: 88, inputTokens: 3_900_000, outputTokens: 2_100_000, cacheReadTokens: 21_000_000, cacheCreationTokens: 1_050_000, lastActive: "1h ago" },
   { repo: "sippd", sessions: 67, inputTokens: 2_400_000, outputTokens: 1_300_000, cacheReadTokens: 14_500_000, cacheCreationTokens: 700_000, lastActive: "3h ago" },
   { repo: "illumine", sessions: 31, inputTokens: 980_000, outputTokens: 610_000, cacheReadTokens: 6_700_000, cacheCreationTokens: 310_000, lastActive: "1d ago" },
@@ -192,7 +192,7 @@ function normalizePoint(p: ApiSeriesPoint): SeriesPoint {
 
 export async function fetchRepoSeries(name: string, since = "30d"): Promise<SeriesResult> {
   if (!API_KEY) {
-    return demoSeries(name, since, "TOKENRAT_API_KEY not set — showing demo data");
+    return demoSeries(name, since, "TOKENMOTH_API_KEY not set — showing demo data");
   }
   try {
     const res = await fetch(
@@ -216,7 +216,7 @@ export async function fetchRepoSeries(name: string, since = "30d"): Promise<Seri
 // Account-wide daily series across all repos (GET /v1/series).
 export async function fetchAccountSeries(since = "30d"): Promise<SeriesResult> {
   if (!API_KEY) {
-    return demoSeries("all repos", since, "TOKENRAT_API_KEY not set — showing demo data");
+    return demoSeries("all repos", since, "TOKENMOTH_API_KEY not set — showing demo data");
   }
   try {
     const res = await fetch(`${API_URL}/v1/series?since=${encodeURIComponent(since)}`, {
