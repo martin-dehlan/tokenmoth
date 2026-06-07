@@ -37,7 +37,28 @@ frontend/          Next.js + Tailwind neo-brutalist dashboard
 AUDIT.md           architecture audit & corrections
 ```
 
-## Backend — run locally
+## Use it yourself (durable local stack)
+
+The fastest way to actually track your own Claude Code usage. Requires Docker
+(OrbStack/Docker Desktop) and Rust (`rustup`).
+
+```bash
+# 1. bring up an always-on Postgres + API (restart: unless-stopped).
+#    The API self-runs migrations and bootstraps the key in docker-compose.yml.
+docker compose up -d --build          # API on http://localhost:8080
+
+# 2. install the CLI and register the Claude Code hook.
+./scripts/install.sh tf_user_123 http://localhost:8080
+
+# 3. finish a Claude Code session in any git repo — it logs on SessionEnd.
+#    remove anytime:  tokenrat uninstall
+```
+
+Open the dashboard (`frontend`, below) and your repos appear as you work. Change
+`TOKENRAT_BOOTSTRAP_KEY` in `docker-compose.yml` to your own secret. Data persists in
+the `tokenrat_pg` volume across restarts. For a cloud deploy instead, see **Hosting**.
+
+## Backend — run locally (without Docker)
 
 Requires Rust (`rustup`) and Postgres.
 
@@ -66,8 +87,11 @@ tokenrat setup --key tf_user_123 --api-url http://localhost:8080
 
 This deep-merges a `SessionEnd` hook into `~/.claude/settings.json`
 (use `--local` for the project's `.claude/settings.json`), **preserving all existing
-settings**. The installed hook runs `tokenrat report`, which parses the transcript and
-POSTs usage at the end of each session. Repo name is auto-detected per project.
+settings**. The installed hook runs `tokenrat report --detach`, which re-spawns in the
+background and returns instantly so SessionEnd never blocks — the orphaned child parses
+the transcript and POSTs usage. Repo name is auto-detected per project.
+
+Remove the hook cleanly with `tokenrat uninstall` (touches only tokenrat's entry).
 
 ## Frontend — run the dashboard
 
