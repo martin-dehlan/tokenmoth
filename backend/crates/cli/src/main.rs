@@ -19,6 +19,13 @@ use std::path::PathBuf;
 
 const DEFAULT_API: &str = "https://api.tokenrat.dev";
 
+/// Hook events we register the reporter under:
+///   * `Stop`       — after every assistant response → near-live per-turn updates.
+///   * `SessionEnd` — once at close → guaranteed final flush (e.g. on /clear, exit).
+/// Both run the same idempotent report (full-transcript sum + upsert), so firing
+/// many times never double-counts.
+const EVENTS: [&str; 2] = ["Stop", "SessionEnd"];
+
 #[derive(Parser)]
 #[command(name = "tokenrat", version, about = "tokenrat — Claude Code token & cost tracker")]
 struct Cli {
@@ -106,12 +113,12 @@ fn cmd_setup(key: &str, api_url: &str, local: bool) -> anyhow::Result<()> {
     let command = format!("{bin} report --key {key} --api-url {api_url} --detach");
 
     if install_hook(&mut root, &command)? {
-        println!("tokenrat hook already installed in {}", path.display());
+        println!("tokenrat hooks already installed in {}", path.display());
         return Ok(());
     }
     write_settings(&path, &root)?;
-    println!("✓ tokenrat hook installed → {}", path.display());
-    println!("  Repo name is auto-detected per project at session end.");
+    println!("✓ tokenrat hooks installed ({}) → {}", EVENTS.join(" + "), path.display());
+    println!("  Stop → live per-turn updates · SessionEnd → final flush. Repo auto-detected.");
     Ok(())
 }
 
@@ -132,8 +139,9 @@ fn cmd_uninstall(local: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Deep-merge a SessionEnd command hook. Returns true if one was already present
-/// (no change made). Preserves all unrelated settings.
+/// Deep-merge the command hook under every event in `EVENTS`. Returns true if a
+/// tokenrat hook was already present under all of them (no change made).
+/// Preserves all unrelated settings.
 fn install_hook(root: &mut Value, command: &str) -> anyhow::Result<bool> {
     let obj = root
         .as_object_mut()
@@ -143,32 +151,41 @@ fn install_hook(root: &mut Value, command: &str) -> anyhow::Result<bool> {
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or_else(|| anyhow::anyhow!("`hooks` is not an object"))?;
-    let arr = hooks
-        .entry("SessionEnd")
-        .or_insert_with(|| json!([]))
-        .as_array_mut()
-        .ok_or_else(|| anyhow::anyhow!("`hooks.SessionEnd` is not an array"))?;
 
-    if arr.iter().any(group_has_tokenrat) {
-        return Ok(true);
+    let mut added = false;
+    for ev in EVENTS {
+        let arr = hooks
+            .entry(ev)
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .ok_or_else(|| anyhow::anyhow!("`hooks.{ev}` is not an array"))?;
+        if !arr.iter().any(group_has_tokenrat) {
+            arr.push(json!({ "hooks": [ { "type": "command", "command": command } ] }));
+            added = true;
+        }
     }
-    arr.push(json!({ "hooks": [ { "type": "command", "command": command } ] }));
-    Ok(false)
+    Ok(!added)
 }
 
-/// Remove every SessionEnd group that runs `tokenrat report`, then tidy up empty
+/// Remove every tokenrat group across all our events, then tidy up empty
 /// containers. Returns how many groups were removed.
 fn uninstall_hook(root: &mut Value) -> usize {
     let Some(obj) = root.as_object_mut() else { return 0 };
     let Some(hooks) = obj.get_mut("hooks").and_then(|h| h.as_object_mut()) else { return 0 };
-    let Some(arr) = hooks.get_mut("SessionEnd").and_then(|a| a.as_array_mut()) else { return 0 };
 
-    let before = arr.len();
-    arr.retain(|g| !group_has_tokenrat(g));
-    let removed = before - arr.len();
-
-    if arr.is_empty() {
-        hooks.remove("SessionEnd");
+    let mut removed = 0;
+    for ev in EVENTS {
+        let empty = if let Some(arr) = hooks.get_mut(ev).and_then(|a| a.as_array_mut()) {
+            let before = arr.len();
+            arr.retain(|g| !group_has_tokenrat(g));
+            removed += before - arr.len();
+            arr.is_empty()
+        } else {
+            false
+        };
+        if empty {
+            hooks.remove(ev);
+        }
     }
     if hooks.is_empty() {
         obj.remove("hooks");
@@ -346,24 +363,26 @@ mod tests {
         assert_eq!(install_hook(&mut root, cmd).unwrap(), false); // installed
         assert_eq!(install_hook(&mut root, cmd).unwrap(), true); // idempotent no-op
         assert!(root["hooks"]["PreToolUse"].is_array()); // preserved
+        assert_eq!(root["hooks"]["Stop"].as_array().unwrap().len(), 1);
         assert_eq!(root["hooks"]["SessionEnd"].as_array().unwrap().len(), 1);
         assert_eq!(root["model"], "opus");
     }
 
     #[test]
     fn uninstall_removes_only_tokenrat_and_tidies() {
+        let group = json!({ "hooks": [ { "type": "command", "command": "tokenrat report --key k --detach" } ] });
         let mut root = json!({
             "hooks": {
                 "PreToolUse": [
                     { "matcher": "Bash", "hooks": [ { "type": "command", "command": "echo keep" } ] }
                 ],
-                "SessionEnd": [
-                    { "hooks": [ { "type": "command", "command": "tokenrat report --key k --detach" } ] }
-                ]
+                "Stop": [ group.clone() ],
+                "SessionEnd": [ group.clone() ]
             }
         });
-        assert_eq!(uninstall_hook(&mut root), 1);
+        assert_eq!(uninstall_hook(&mut root), 2); // one per event
         assert!(root["hooks"]["PreToolUse"].is_array()); // kept
+        assert!(root["hooks"].get("Stop").is_none()); // emptied + tidied
         assert!(root["hooks"].get("SessionEnd").is_none()); // emptied + tidied
     }
 
