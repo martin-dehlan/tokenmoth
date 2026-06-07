@@ -1,4 +1,4 @@
-# Durable local tokenrat stack: Postgres + API, always-on (restart unless-stopped).
+# Durable local tokenmoth stack: Postgres + API, always-on (restart unless-stopped).
 #   docker compose up -d --build
 # The API self-runs migrations and bootstraps the API key below on first start.
 services:
@@ -6,11 +6,11 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: tokenrat
+      POSTGRES_DB: tokenmoth
     volumes:
-      - tokenrat_pg:/var/lib/postgresql/data
+      - tokenmoth_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d tokenrat"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tokenmoth"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -21,12 +21,12 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/tokenrat
+      DATABASE_URL: postgres://postgres:postgres@db:5432/tokenmoth
       BIND_ADDR: 0.0.0.0:8080
-      RUST_LOG: tokenrat_api=info,tower_http=info
+      RUST_LOG: tokenmoth_api=info,tower_http=info
       # Single-user bootstrap — change this to your own secret key.
-      TOKENRAT_BOOTSTRAP_KEY: tf_user_123
-      TOKENRAT_BOOTSTRAP_EMAIL: me@tokenrat.local
+      TOKENMOTH_BOOTSTRAP_KEY: tm_user_123
+      TOKENMOTH_BOOTSTRAP_EMAIL: me@tokenmoth.local
     ports:
       - "8080:8080"
     depends_on:
@@ -35,4 +35,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  tokenrat_pg:
+  tokenmoth_pg:

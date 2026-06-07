@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tokenrat installer — build + install the CLI, then register the Claude Code hook.
+# tokenmoth installer — build + install the CLI, then register the Claude Code hook.
 #
 #   ./scripts/install.sh <api-key> [api-url]
 #
@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 if [ -z "$KEY" ]; then
   echo "usage: $0 <api-key> [api-url]" >&2
-  echo "  e.g. $0 tf_user_123 http://localhost:8080" >&2
+  echo "  e.g. $0 tm_user_123 http://localhost:8080" >&2
   exit 1
 fi
 
@@ -21,12 +21,12 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "→ building + installing the tokenrat CLI…"
+echo "→ building + installing the tokenmoth CLI…"
 cargo install --path "$HERE/backend/crates/cli" --force
 
 echo "→ registering the Claude Code SessionEnd hook…"
-tokenrat setup --key "$KEY" --api-url "$API_URL"
+tokenmoth setup --key "$KEY" --api-url "$API_URL"
 
 echo
-echo "✓ tokenrat installed. Finish a Claude Code session in any git repo to log it."
-echo "  Remove anytime with:  tokenrat uninstall"
+echo "✓ tokenmoth installed. Finish a Claude Code session in any git repo to log it."
+echo "  Remove anytime with:  tokenmoth uninstall"

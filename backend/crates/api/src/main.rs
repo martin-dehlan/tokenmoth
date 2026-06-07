@@ -17,7 +17,7 @@ struct AppState {
     db: PgPool,
 }
 
-/// Payload built by `tokenrat report` (NOT the raw Claude Code hook payload —
+/// Payload built by `tokenmoth report` (NOT the raw Claude Code hook payload —
 /// the hook payload carries no token counts; the CLI aggregates them from the
 /// session transcript before POSTing here). See AUDIT.md, finding 1.
 #[derive(Deserialize)]
@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "tokenrat_api=info,tower_http=info".into()),
+                .unwrap_or_else(|_| "tokenmoth_api=info,tower_http=info".into()),
         )
         .init();
 
@@ -57,10 +57,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Optional single-user bootstrap: self-seed a user + API key on startup so a
     // fresh deploy (e.g. docker-compose) is usable immediately. Idempotent.
-    if let Ok(key) = std::env::var("TOKENRAT_BOOTSTRAP_KEY") {
+    if let Ok(key) = std::env::var("TOKENMOTH_BOOTSTRAP_KEY") {
         if !key.is_empty() {
-            let email = std::env::var("TOKENRAT_BOOTSTRAP_EMAIL")
-                .unwrap_or_else(|_| "me@tokenrat.local".to_string());
+            let email = std::env::var("TOKENMOTH_BOOTSTRAP_EMAIL")
+                .unwrap_or_else(|_| "me@tokenmoth.local".to_string());
             bootstrap_key(&db, &key, &email).await?;
             tracing::info!("bootstrapped api key for {email}");
         }
@@ -80,7 +80,7 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = std::env::var("BIND_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:8080".into())
         .parse()?;
-    tracing::info!("tokenrat-api listening on {addr}");
+    tracing::info!("tokenmoth-api listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())

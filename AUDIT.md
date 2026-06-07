@@ -1,4 +1,4 @@
-# tokenrat — Architecture Audit
+# tokenmoth — Architecture Audit
 
 This document records the technical audit performed before implementation, and the
 design corrections that followed. Read it before changing the hook/CLI/ingestion path.
@@ -24,7 +24,7 @@ Real payloads:
 Token usage lives in the **transcript JSONL** at `transcript_path`. Each assistant
 message has a `message.usage` object with the four counts.
 
-**Correction:** `tokenrat report` reads `transcript_path`, sums `usage` across
+**Correction:** `tokenmoth report` reads `transcript_path`, sums `usage` across
 messages, then POSTs the aggregate. The hook payload is *not* forwarded verbatim.
 
 ## Finding 2 — "Zero latency guaranteed" is false 🔴
