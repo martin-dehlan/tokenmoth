@@ -74,11 +74,14 @@ POSTs usage at the end of each session. Repo name is auto-detected per project.
 ```bash
 cd frontend
 npm install
-npm run dev          # http://localhost:3000
+cp .env.example .env.local     # set TOKENRAT_API_URL + TOKENRAT_API_KEY
+npm run dev                    # http://localhost:3000
 ```
 
-Currently renders mock data from `lib/data.ts`. Point `getRepos()` at a real
-`GET /v1/repos` endpoint to go live.
+The dashboard fetches per-repo rollups from the API's `GET /v1/repos` (server
+component, `Bearer` auth). With no key set it renders **demo mode** (a banner +
+sample data) so it always works offline. Set `TOKENRAT_API_KEY` / `TOKENRAT_API_URL`
+to switch to **live** mode (`● LIVE` indicator).
 
 ### Style
 
