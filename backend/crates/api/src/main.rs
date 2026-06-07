@@ -61,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/telemetry", post(ingest))
         .route("/v1/repos", get(list_repos))
         .route("/v1/repos/:name/series", get(repo_series))
+        .route("/v1/series", get(account_series))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -356,6 +357,72 @@ async fn repo_series(
         .collect();
 
     Ok(Json(SeriesResponse { repo: name, since: since_label, points }))
+}
+
+// ---- GET /v1/series : account-wide daily series (all repos) ----------------
+
+#[derive(Serialize)]
+struct AccountSeriesResponse {
+    since: String,
+    points: Vec<SeriesPoint>,
+}
+
+async fn account_series(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ReposQuery>,
+) -> Result<Json<AccountSeriesResponse>, (StatusCode, String)> {
+    let user_id = auth_user(&st.db, &headers).await?;
+
+    let since_label = q.since.unwrap_or_else(|| "30d".to_string());
+    let cutoff = parse_since(&since_label)
+        .ok_or((StatusCode::BAD_REQUEST, "invalid `since` (use 24h|7d|30d|all)".to_string()))?;
+
+    let rows: Vec<SeriesRow> = sqlx::query_as(
+        r#"
+        select
+            date_trunc('day', ended_at)::date                  as day,
+            count(*)::bigint                                   as sessions,
+            coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
+            coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
+            coalesce(sum(cache_read_input_tokens), 0)::bigint  as cache_read_tokens,
+            coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens
+        from token_logs
+        where user_id = $1
+          and ($2::timestamptz is null or ended_at >= $2)
+        group by day
+        order by day asc
+        "#,
+    )
+    .bind(user_id)
+    .bind(cutoff)
+    .fetch_all(&st.db)
+    .await
+    .map_err(internal)?;
+
+    let points = rows
+        .into_iter()
+        .map(|r| SeriesPoint {
+            total_tokens: r.input_tokens
+                + r.output_tokens
+                + r.cache_read_tokens
+                + r.cache_creation_tokens,
+            estimated_cost_usd: cost_usd(
+                r.input_tokens,
+                r.output_tokens,
+                r.cache_read_tokens,
+                r.cache_creation_tokens,
+            ),
+            day: r.day,
+            sessions: r.sessions,
+            input_tokens: r.input_tokens,
+            output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens,
+            cache_creation_tokens: r.cache_creation_tokens,
+        })
+        .collect();
+
+    Ok(Json(AccountSeriesResponse { since: since_label, points }))
 }
 
 /// Shared Bearer-key → user_id resolution.
