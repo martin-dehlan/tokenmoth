@@ -1,4 +1,4 @@
-# 🐀 tokenrat
+# 🦋 TokenMoth
 
 Track, aggregate and visualize **Claude Code** token usage & cost — per Git repo, in
 real time. A premium micro-SaaS: tiny Rust ingestion API, a zero-setup Rust CLI that
@@ -15,11 +15,11 @@ analog breaker fuse box (*Sicherungskasten*).
 Claude Code session ends
         │  SessionEnd hook  (settings.json)
         ▼
-tokenrat report  ──reads──► transcript JSONL  (sums message.usage)
+tokenmoth report  ──reads──► transcript JSONL  (sums message.usage)
         │                   derives repo via git
         │  POST /v1/telemetry   Authorization: Bearer tf_...
         ▼
-tokenrat-api (Axum)  ──upsert (UNIQUE session_id)──►  Postgres
+tokenmoth-api (Axum)  ──upsert (UNIQUE session_id)──►  Postgres
         ▲
         │  GET (dashboard)
 Next.js fuse-box dashboard
@@ -30,7 +30,7 @@ Next.js fuse-box dashboard
 ```
 backend/
   crates/api/      Axum + SQLx ingestion API   (POST /v1/telemetry, /health)
-  crates/cli/      tokenrat CLI                 (setup + report subcommands)
+  crates/cli/      tokenmoth CLI                 (setup + report subcommands)
   migrations/      Postgres schema (sqlx migrate)
   seed.sql         dev user + API key
 frontend/          Next.js + Tailwind neo-brutalist dashboard
@@ -48,15 +48,15 @@ The fastest way to actually track your own Claude Code usage. Requires Docker
 docker compose up -d --build          # API on http://localhost:8080
 
 # 2. install the CLI and register the Claude Code hook.
-./scripts/install.sh tf_user_123 http://localhost:8080
+./scripts/install.sh tm_user_123 http://localhost:8080
 
 # 3. finish a Claude Code session in any git repo — it logs on SessionEnd.
-#    remove anytime:  tokenrat uninstall
+#    remove anytime:  tokenmoth uninstall
 ```
 
 Open the dashboard (`frontend`, below) and your repos appear as you work. Change
-`TOKENRAT_BOOTSTRAP_KEY` in `docker-compose.yml` to your own secret. Data persists in
-the `tokenrat_pg` volume across restarts. For a cloud deploy instead, see **Hosting**.
+`TOKENMOTH_BOOTSTRAP_KEY` in `docker-compose.yml` to your own secret. Data persists in
+the `tokenmoth_pg` volume across restarts. For a cloud deploy instead, see **Hosting**.
 
 ## Backend — run locally (without Docker)
 
@@ -65,9 +65,9 @@ Requires Rust (`rustup`) and Postgres.
 ```bash
 cd backend
 cp .env.example .env            # set DATABASE_URL
-createdb tokenrat               # or point DATABASE_URL at any Postgres
-cargo run -p tokenrat-api       # runs migrations, listens on :8080
-psql "$DATABASE_URL" -f seed.sql   # creates dev key tf_user_123
+createdb tokenmoth               # or point DATABASE_URL at any Postgres
+cargo run -p tokenmoth-api       # runs migrations, listens on :8080
+psql "$DATABASE_URL" -f seed.sql   # creates dev key tm_user_123
 ```
 
 ### Endpoints
@@ -81,30 +81,30 @@ psql "$DATABASE_URL" -f seed.sql   # creates dev key tf_user_123
 
 ```bash
 cd backend
-cargo install --path crates/cli      # installs `tokenrat`
-tokenrat setup --key tf_user_123 --api-url http://localhost:8080
+cargo install --path crates/cli      # installs `tokenmoth`
+tokenmoth setup --key tm_user_123 --api-url http://localhost:8080
 ```
 
 This deep-merges a `SessionEnd` hook into `~/.claude/settings.json`
 (use `--local` for the project's `.claude/settings.json`), **preserving all existing
-settings**. The installed hook runs `tokenrat report --detach`, which re-spawns in the
+settings**. The installed hook runs `tokenmoth report --detach`, which re-spawns in the
 background and returns instantly so SessionEnd never blocks — the orphaned child parses
 the transcript and POSTs usage. Repo name is auto-detected per project.
 
-Remove the hook cleanly with `tokenrat uninstall` (touches only tokenrat's entry).
+Remove the hook cleanly with `tokenmoth uninstall` (touches only tokenmoth's entry).
 
 ## Frontend — run the dashboard
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local     # set TOKENRAT_API_URL + TOKENRAT_API_KEY
+cp .env.example .env.local     # set TOKENMOTH_API_URL + TOKENMOTH_API_KEY
 npm run dev                    # http://localhost:3000
 ```
 
 The dashboard fetches per-repo rollups from the API's `GET /v1/repos` (server
 component, `Bearer` auth). With no key set it renders **demo mode** (a banner +
-sample data) so it always works offline. Set `TOKENRAT_API_KEY` / `TOKENRAT_API_URL`
+sample data) so it always works offline. Set `TOKENMOTH_API_KEY` / `TOKENMOTH_API_URL`
 to switch to **live** mode (`● LIVE` indicator).
 
 ### Style

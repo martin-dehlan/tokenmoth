@@ -28,7 +28,7 @@ export default function TopRail({
             className="block h-[9px] w-[9px] rounded-full bg-accent"
             style={{ boxShadow: "0 0 0 3px rgba(26,127,100,0.18)" }}
           />
-          <span className="text-[15px] font-medium tracking-hero text-ink">tokenrat</span>
+          <span className="text-[15px] font-medium tracking-hero text-ink">TokenMoth</span>
           <span className="font-mono text-[12px] text-faint">/{workspace}</span>
         </Link>
 

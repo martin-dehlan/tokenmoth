@@ -1,10 +1,10 @@
 [package]
-name = "tokenrat-cli"
+name = "tokenmoth-cli"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "tokenrat"
+name = "tokenmoth"
 path = "src/main.rs"
 
 [dependencies]

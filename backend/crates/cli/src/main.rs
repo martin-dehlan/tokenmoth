@@ -1,11 +1,11 @@
-//! tokenrat-cli — installs the Claude Code hook and reports session token usage.
+//! tokenmoth-cli — installs the Claude Code hook and reports session token usage.
 //!
 //! Subcommands:
-//!   * `tokenrat setup --key tf_...`  — deep-merges a SessionEnd hook into
+//!   * `tokenmoth setup --key tf_...`  — deep-merges a SessionEnd hook into
 //!     ~/.claude/settings.json (or ./.claude with --local), preserving every
 //!     existing setting. The installed hook runs `report --detach`.
-//!   * `tokenrat uninstall`           — removes only tokenrat's hook entry.
-//!   * `tokenrat report --key tf_...` — invoked BY the hook. Reads the hook JSON
+//!   * `tokenmoth uninstall`           — removes only tokenmoth's hook entry.
+//!   * `tokenmoth report --key tf_...` — invoked BY the hook. Reads the hook JSON
 //!     from stdin, aggregates per-message `usage` from the session transcript
 //!     (the hook payload itself carries no token counts — audit finding 1),
 //!     derives the git repo name, and POSTs the aggregate. With `--detach` it
@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-const DEFAULT_API: &str = "https://api.tokenrat.dev";
+const DEFAULT_API: &str = "https://api.tokenmoth.dev";
 
 /// Hook events we register the reporter under:
 ///   * `Stop`       — after every assistant response → near-live per-turn updates.
@@ -27,7 +27,7 @@ const DEFAULT_API: &str = "https://api.tokenrat.dev";
 const EVENTS: [&str; 2] = ["Stop", "SessionEnd"];
 
 #[derive(Parser)]
-#[command(name = "tokenrat", version, about = "tokenrat — Claude Code token & cost tracker")]
+#[command(name = "tokenmoth", version, about = "tokenmoth — Claude Code token & cost tracker")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -45,7 +45,7 @@ enum Cmd {
         #[arg(long)]
         local: bool,
     },
-    /// Remove tokenrat's SessionEnd hook (leaves all other settings untouched).
+    /// Remove tokenmoth's SessionEnd hook (leaves all other settings untouched).
     Uninstall {
         #[arg(long)]
         local: bool,
@@ -71,7 +71,7 @@ fn main() {
     };
     if let Err(e) = r {
         // A hook must never break the user's session — log to stderr and exit 0.
-        eprintln!("tokenrat: {e}");
+        eprintln!("tokenmoth: {e}");
     }
 }
 
@@ -105,19 +105,19 @@ fn cmd_setup(key: &str, api_url: &str, local: bool) -> anyhow::Result<()> {
     let path = settings_path(local)?;
     let mut root = load_settings(&path)?;
     // Use this binary's absolute path so the hook resolves regardless of the
-    // PATH the Claude Code hook runner sees. Falls back to a bare `tokenrat`.
+    // PATH the Claude Code hook runner sees. Falls back to a bare `tokenmoth`.
     let bin = std::env::current_exe()
         .ok()
         .and_then(|p| p.to_str().map(str::to_string))
-        .unwrap_or_else(|| "tokenrat".to_string());
+        .unwrap_or_else(|| "tokenmoth".to_string());
     let command = format!("{bin} report --key {key} --api-url {api_url} --detach");
 
     if install_hook(&mut root, &command)? {
-        println!("tokenrat hooks already installed in {}", path.display());
+        println!("tokenmoth hooks already installed in {}", path.display());
         return Ok(());
     }
     write_settings(&path, &root)?;
-    println!("✓ tokenrat hooks installed ({}) → {}", EVENTS.join(" + "), path.display());
+    println!("✓ tokenmoth hooks installed ({}) → {}", EVENTS.join(" + "), path.display());
     println!("  Stop → live per-turn updates · SessionEnd → final flush. Repo auto-detected.");
     Ok(())
 }
@@ -131,16 +131,16 @@ fn cmd_uninstall(local: bool) -> anyhow::Result<()> {
     let mut root = load_settings(&path)?;
     let removed = uninstall_hook(&mut root);
     if removed == 0 {
-        println!("no tokenrat hook found in {}", path.display());
+        println!("no tokenmoth hook found in {}", path.display());
         return Ok(());
     }
     write_settings(&path, &root)?;
-    println!("✓ removed tokenrat hook from {}", path.display());
+    println!("✓ removed tokenmoth hook from {}", path.display());
     Ok(())
 }
 
 /// Deep-merge the command hook under every event in `EVENTS`. Returns true if a
-/// tokenrat hook was already present under all of them (no change made).
+/// tokenmoth hook was already present under all of them (no change made).
 /// Preserves all unrelated settings.
 fn install_hook(root: &mut Value, command: &str) -> anyhow::Result<bool> {
     let obj = root
@@ -159,7 +159,7 @@ fn install_hook(root: &mut Value, command: &str) -> anyhow::Result<bool> {
             .or_insert_with(|| json!([]))
             .as_array_mut()
             .ok_or_else(|| anyhow::anyhow!("`hooks.{ev}` is not an array"))?;
-        if !arr.iter().any(group_has_tokenrat) {
+        if !arr.iter().any(group_has_tokenmoth) {
             arr.push(json!({ "hooks": [ { "type": "command", "command": command } ] }));
             added = true;
         }
@@ -167,7 +167,7 @@ fn install_hook(root: &mut Value, command: &str) -> anyhow::Result<bool> {
     Ok(!added)
 }
 
-/// Remove every tokenrat group across all our events, then tidy up empty
+/// Remove every tokenmoth group across all our events, then tidy up empty
 /// containers. Returns how many groups were removed.
 fn uninstall_hook(root: &mut Value) -> usize {
     let Some(obj) = root.as_object_mut() else { return 0 };
@@ -177,7 +177,7 @@ fn uninstall_hook(root: &mut Value) -> usize {
     for ev in EVENTS {
         let empty = if let Some(arr) = hooks.get_mut(ev).and_then(|a| a.as_array_mut()) {
             let before = arr.len();
-            arr.retain(|g| !group_has_tokenrat(g));
+            arr.retain(|g| !group_has_tokenmoth(g));
             removed += before - arr.len();
             arr.is_empty()
         } else {
@@ -193,7 +193,7 @@ fn uninstall_hook(root: &mut Value) -> usize {
     removed
 }
 
-fn group_has_tokenrat(group: &Value) -> bool {
+fn group_has_tokenmoth(group: &Value) -> bool {
     group
         .get("hooks")
         .and_then(|h| h.as_array())
@@ -201,7 +201,7 @@ fn group_has_tokenrat(group: &Value) -> bool {
             hs.iter().any(|h| {
                 h.get("command")
                     .and_then(|c| c.as_str())
-                    .map(|c| c.contains("tokenrat report"))
+                    .map(|c| c.contains("tokenmoth report"))
                     .unwrap_or(false)
             })
         })
@@ -212,7 +212,7 @@ fn cmd_report(key: &str, api_url: &str, detach: bool) -> anyhow::Result<()> {
     let mut buf = String::new();
     std::io::stdin().read_to_string(&mut buf)?;
 
-    if detach && std::env::var_os("TOKENRAT_DETACHED").is_none() {
+    if detach && std::env::var_os("TOKENMOTH_DETACHED").is_none() {
         return spawn_detached(key, api_url, &buf);
     }
     process_report(key, api_url, &buf)
@@ -225,7 +225,7 @@ fn spawn_detached(key: &str, api_url: &str, payload: &str) -> anyhow::Result<()>
     let exe = std::env::current_exe()?;
     let mut child = std::process::Command::new(exe)
         .args(["report", "--key", key, "--api-url", api_url])
-        .env("TOKENRAT_DETACHED", "1")
+        .env("TOKENMOTH_DETACHED", "1")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -359,7 +359,7 @@ mod tests {
                 ]
             }
         });
-        let cmd = "tokenrat report --key k --api-url u --detach";
+        let cmd = "tokenmoth report --key k --api-url u --detach";
         assert_eq!(install_hook(&mut root, cmd).unwrap(), false); // installed
         assert_eq!(install_hook(&mut root, cmd).unwrap(), true); // idempotent no-op
         assert!(root["hooks"]["PreToolUse"].is_array()); // preserved
@@ -369,8 +369,8 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_removes_only_tokenrat_and_tidies() {
-        let group = json!({ "hooks": [ { "type": "command", "command": "tokenrat report --key k --detach" } ] });
+    fn uninstall_removes_only_tokenmoth_and_tidies() {
+        let group = json!({ "hooks": [ { "type": "command", "command": "tokenmoth report --key k --detach" } ] });
         let mut root = json!({
             "hooks": {
                 "PreToolUse": [
