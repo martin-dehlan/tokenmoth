@@ -213,6 +213,28 @@ export async function fetchRepoSeries(name: string, since = "30d"): Promise<Seri
   }
 }
 
+// Account-wide daily series across all repos (GET /v1/series).
+export async function fetchAccountSeries(since = "30d"): Promise<SeriesResult> {
+  if (!API_KEY) {
+    return demoSeries("all repos", since, "TOKENRAT_API_KEY not set — showing demo data");
+  }
+  try {
+    const res = await fetch(`${API_URL}/v1/series?since=${encodeURIComponent(since)}`, {
+      headers: { Authorization: `Bearer ${API_KEY}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return demoSeries("all repos", since, `API responded ${res.status} — showing demo data`);
+    const data = (await res.json()) as { since: string; points: ApiSeriesPoint[] };
+    return { repo: "all repos", since: data.since, points: data.points.map(normalizePoint), source: "live" };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "fetch failed";
+    return demoSeries("all repos", since, `${msg} — showing demo data`);
+  }
+}
+
+// Gauge fill colors cycled per instrument row (teal / navy / amber / gray).
+export const INSTRUMENT_COLORS = ["#1a7f64", "#1a4f7f", "#9a6200", "#6b7280"] as const;
+
 // Deterministic demo series so the detail page renders offline.
 function demoSeries(name: string, since: string, error: string): SeriesResult {
   const base = DEMO_REPOS.find((r) => r.repo === name);

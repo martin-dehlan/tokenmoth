@@ -1,5 +1,6 @@
 import Link from "next/link";
-import CostChart from "@/components/CostChart";
+import TopRail from "@/components/TopRail";
+import AnnotatedChart from "@/components/AnnotatedChart";
 import { fetchRepoSeries, fmtTokens, fmtUsd } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -21,91 +22,106 @@ export default async function RepoDetail({ params }: { params: { name: string } 
     }),
     { cost: 0, tokens: 0, sessions: 0, input: 0, output: 0, cread: 0, ccreate: 0 },
   );
+  const activeDays = Math.max(1, points.length);
 
   const breakdown = [
-    { label: "input", v: sum.input, color: "bg-toxic" },
-    { label: "output", v: sum.output, color: "bg-ratyellow" },
-    { label: "cache read", v: sum.cread, color: "bg-white" },
-    { label: "cache write", v: sum.ccreate, color: "bg-danger" },
+    { label: "input", v: sum.input, color: "#1a7f64" },
+    { label: "output", v: sum.output, color: "#1a4f7f" },
+    { label: "cache read", v: sum.cread, color: "#9a6200" },
+    { label: "cache write", v: sum.ccreate, color: "#6b7280" },
   ];
   const tmax = Math.max(1, ...breakdown.map((b) => b.v));
 
   return (
-    <main className="min-h-screen p-6 md:p-10">
-      {/* top bar */}
-      <header className="border-4 border-black bg-ratyellow text-black px-5 py-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-[11px] font-bold tracking-widest border-2 border-black px-2 py-1 hover:bg-black hover:text-ratyellow">
-            ◀ PANEL
-          </Link>
-          <span className="text-2xl font-extrabold tracking-tight">{name}</span>
-        </div>
-        <span className="text-[11px] font-bold tracking-widest">
-          CIRCUIT · {since.toUpperCase()} · {live ? "● LIVE" : "○ DEMO"}
-        </span>
-      </header>
+    <>
+      <TopRail active="models" since={since} />
 
-      {!live && (
-        <div className="mt-4 border-4 border-black bg-danger text-black px-4 py-3 text-[11px] font-bold tracking-widest">
-          ⚠ DEMO MODE — {error ?? "no live connection"}.
-        </div>
-      )}
+      <main className="mx-auto max-w-5xl px-5">
+        {!live && (
+          <div className="mt-5 text-[11px] text-warn flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-warn inline-block" />
+            demo mode — {error ?? "no live connection"}.
+          </div>
+        )}
 
-      {/* gauges */}
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-        <Gauge label="DRAW (30D)" value={fmtUsd(sum.cost)} accent="text-toxic" />
-        <Gauge label="TOKENS" value={fmtTokens(sum.tokens)} accent="text-ratyellow" />
-        <Gauge label="SESSIONS" value={`${sum.sessions}`} accent="text-white" />
-      </section>
+        <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
+          {/* HERO */}
+          <section className="px-8 pt-8 pb-7">
+            <div className="flex items-center gap-2 mb-4">
+              <Link href="/" className="btn text-muted">
+                ◀ <span className="text-ink">panel</span>
+              </Link>
+              <span className="font-mono text-[13px] text-faint">/{name}</span>
+            </div>
 
-      {points.length === 0 ? (
-        <div className="mt-6 border-4 border-dashed border-white/20 p-10 text-center text-white/50 text-[12px] tracking-widest">
-          NO ACTIVITY FOR <span className="text-ratyellow">{name}</span> IN THIS WINDOW.
-        </div>
-      ) : (
-        <>
-          {/* cost chart */}
-          <section className="mt-6">
-            <CostChart points={points} />
+            <div className="flex flex-col lg:flex-row lg:items-end gap-x-12 gap-y-6">
+              <div className="shrink-0">
+                <div className="text-[10px] uppercase tracking-label text-faint mb-2">
+                  tokens · last {since}
+                </div>
+                <div className="font-mono font-medium text-ink text-[56px] leading-[0.9] tracking-hero tabular-nums">
+                  {fmtTokens(sum.tokens)}
+                </div>
+              </div>
+              <ul className="flex flex-wrap gap-x-8 gap-y-2.5 lg:pb-2">
+                <Annotation label="cost so far" value={fmtUsd(sum.cost)} />
+                <Annotation label="sessions" value={`${sum.sessions}`} />
+                <Annotation label="avg / day" value={`${fmtTokens(sum.tokens / activeDays)} tok`} />
+                <Annotation label="active days" value={`${points.length}`} />
+              </ul>
+            </div>
           </section>
 
-          {/* token-type breakdown */}
-          <section className="mt-6 border-4 border-black bg-[#161616] p-5">
-            <div className="text-[11px] font-bold tracking-widest text-white/60 mb-4">
-              TOKEN BREAKDOWN
-            </div>
+          {/* CHART */}
+          <section className="px-8 py-6 border-t border-hair">
+            {points.length > 0 ? (
+              <AnnotatedChart
+                series={[
+                  { name: "total", color: "#1a7f64", values: points.map((p) => p.totalTokens) },
+                  { name: "input", color: "#1a4f7f", dashed: true, values: points.map((p) => p.inputTokens) },
+                  { name: "output", color: "#9a6200", dashed: true, values: points.map((p) => p.outputTokens) },
+                ]}
+                xLabels={points.map((p) => p.day.slice(5))}
+                format={fmtTokens}
+              />
+            ) : (
+              <div className="text-[12px] text-faint py-10 text-center">
+                no activity for {name} in this window
+              </div>
+            )}
+          </section>
+
+          {/* BREAKDOWN */}
+          <section className="px-8 pt-7 pb-7 border-t border-hair">
+            <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">token breakdown</h2>
             <div className="flex flex-col gap-3">
               {breakdown.map((b) => (
-                <div key={b.label} className="flex items-center gap-3">
-                  <span className="w-24 text-[11px] tracking-widest text-white/60">{b.label}</span>
-                  <div className="flex-1 border-2 border-black bg-charcoal h-5">
-                    <div
-                      className={`${b.color} h-full border-r-2 border-black`}
-                      style={{ width: `${Math.round((b.v / tmax) * 100)}%` }}
-                    />
+                <div key={b.label} className="grid grid-cols-[6rem_1fr_4rem] items-center gap-4">
+                  <span className="text-[11px] text-muted">{b.label}</span>
+                  <div className="track">
+                    <i style={{ width: `${Math.round((b.v / tmax) * 100)}%`, background: b.color }} />
                   </div>
-                  <span className="w-16 text-right text-[11px] tabular-nums text-white">
+                  <span className="font-mono text-[12px] text-ink tabular-nums text-right">
                     {fmtTokens(b.v)}
                   </span>
                 </div>
               ))}
             </div>
           </section>
-        </>
-      )}
+        </div>
 
-      <footer className="mt-8 text-[11px] text-white/40 tracking-widest">
-        tokenrat // {name} · cost is an estimate
-      </footer>
-    </main>
+        <footer className="pb-10 text-[11px] text-faint">{name} · cost is an estimate</footer>
+      </main>
+    </>
   );
 }
 
-function Gauge({ label, value, accent }: { label: string; value: string; accent: string }) {
+function Annotation({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-4 border-black bg-[#161616] px-5 py-6">
-      <div className="text-[11px] font-bold tracking-widest text-white/50">{label}</div>
-      <div className={`mt-2 text-4xl font-extrabold ${accent}`}>{value}</div>
-    </div>
+    <li className="flex items-baseline gap-2">
+      <span className="h-1 w-1 rounded-full bg-line-strong shrink-0 translate-y-[-2px]" />
+      <span className="text-[11px] text-muted">{label}</span>
+      <span className="text-[13px] text-ink tabular-nums font-mono">{value}</span>
+    </li>
   );
 }

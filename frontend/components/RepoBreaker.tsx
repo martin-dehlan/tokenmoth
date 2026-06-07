@@ -1,70 +1,64 @@
 import Link from "next/link";
-import {
-  RepoUsage,
-  breakerLoad,
-  fmtTokens,
-  fmtUsd,
-  relativeTime,
-  Load,
-} from "@/lib/data";
+import { RepoUsage, breakerLoad, fmtTokens, fmtUsd, relativeTime } from "@/lib/data";
 
-const LOAD_STYLE: Record<Load, { bar: string; label: string; text: string }> = {
-  low: { bar: "bg-toxic", label: "NOMINAL", text: "text-toxic" },
-  mid: { bar: "bg-ratyellow", label: "LOAD", text: "text-ratyellow" },
-  high: { bar: "bg-ratyellow", label: "HIGH", text: "text-ratyellow" },
-  tripped: { bar: "bg-danger", label: "TRIPPED", text: "text-danger" },
-};
-
-// A single circuit breaker switch in the "Sicherungskasten".
-export default function RepoBreaker({ repo }: { repo: RepoUsage }) {
+// One repo rendered as an instrument row: name + sub-note, gauge track,
+// token count, cost, status tag. Not a card, not a table cell.
+export default function RepoBreaker({
+  repo,
+  max,
+  color,
+}: {
+  repo: RepoUsage;
+  max: number;
+  color: string;
+}) {
   const load = breakerLoad(repo.costUsd);
-  const s = LOAD_STYLE[load];
-  const on = load !== "tripped";
+  const width = Math.max(2, Math.round((repo.costUsd / Math.max(0.01, max)) * 100));
+  const status = STATUS[load];
 
   return (
     <Link
       href={`/repo/${encodeURIComponent(repo.repo)}`}
-      className="border-4 border-black bg-[#161616] p-4 flex flex-col gap-3 hover:border-ratyellow transition-colors focus:outline-none focus:border-toxic"
+      className="group grid grid-cols-[minmax(9rem,1.2fr)_2fr_auto_auto_auto] items-center gap-4 sm:gap-6 px-2 -mx-2 py-2.5 rounded-btn hover:bg-accent-faint transition-colors"
     >
-      {/* header: repo + status lamp */}
-      <div className="flex items-center justify-between">
-        <span className="font-extrabold truncate">{repo.repo}</span>
-        <span className={`h-3 w-3 border-2 border-black ${s.bar}`} aria-hidden />
-      </div>
-
-      {/* the breaker lever */}
-      <div className="border-2 border-black bg-charcoal h-16 flex items-stretch">
-        <div className="flex-1 flex items-center justify-center text-[10px] tracking-widest text-white/40">
-          OFF
+      {/* name + sub-note */}
+      <div className="min-w-0">
+        <div className="font-mono text-[13px] font-medium text-ink truncate group-hover:text-accent transition-colors">
+          {repo.repo}
         </div>
-        <div
-          className={`w-12 border-x-2 border-black flex items-center justify-center font-extrabold ${
-            on ? `${s.bar} text-black` : "bg-charcoal text-white/30"
-          }`}
-        >
-          {on ? "▲" : "▼"}
-        </div>
-        <div className="flex-1 flex items-center justify-center text-[10px] tracking-widest text-white/40">
-          ON
+        <div className="text-[10px] italic text-faint truncate">
+          {repo.sessions} sessions · {relativeTime(repo.lastActive)}
         </div>
       </div>
 
-      {/* readout */}
-      <div className="flex items-baseline justify-between">
-        <span className={`text-xl font-extrabold ${s.text}`}>{fmtUsd(repo.costUsd)}</span>
-        <span className={`text-[10px] font-bold tracking-widest ${s.text}`}>{s.label}</span>
+      {/* gauge track */}
+      <div className="track">
+        <i style={{ width: `${width}%`, background: color }} />
       </div>
 
-      <dl className="text-[11px] text-white/60 grid grid-cols-2 gap-x-3 gap-y-1">
-        <dt>tokens</dt>
-        <dd className="text-right text-white">{fmtTokens(repo.totalTokens)}</dd>
-        <dt>sessions</dt>
-        <dd className="text-right text-white">{repo.sessions}</dd>
-        <dt>cache rd</dt>
-        <dd className="text-right text-white">{fmtTokens(repo.cacheReadTokens)}</dd>
-        <dt>last</dt>
-        <dd className="text-right text-white">{relativeTime(repo.lastActive)}</dd>
-      </dl>
+      {/* tokens */}
+      <div className="font-mono text-[12px] text-muted tabular-nums text-right w-16">
+        {fmtTokens(repo.totalTokens)}
+      </div>
+
+      {/* cost */}
+      <div className="font-mono text-[13px] font-medium text-ink tabular-nums text-right w-16">
+        {fmtUsd(repo.costUsd)}
+      </div>
+
+      {/* status */}
+      <div className="w-16 flex justify-end">
+        <span className="tag" style={{ color: status.color, background: status.bg }}>
+          {status.label}
+        </span>
+      </div>
     </Link>
   );
 }
+
+const STATUS: Record<string, { label: string; color: string; bg: string }> = {
+  low: { label: "ok", color: "#1a7f64", bg: "rgba(26,127,100,0.07)" },
+  mid: { label: "ok", color: "#6b7280", bg: "rgba(107,114,128,0.08)" },
+  high: { label: "high $", color: "#9a6200", bg: "rgba(154,98,0,0.08)" },
+  tripped: { label: "over", color: "#1a4f7f", bg: "rgba(26,79,127,0.08)" },
+};
