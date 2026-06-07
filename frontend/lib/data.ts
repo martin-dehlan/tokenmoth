@@ -144,3 +144,108 @@ export const DEMO_REPOS: RepoUsage[] = [
   { repo: "prooved", sessions: 19, inputTokens: 520_000, outputTokens: 290_000, cacheReadTokens: 3_100_000, cacheCreationTokens: 140_000, lastActive: "2d ago" },
   { repo: "eam-tool", sessions: 7, inputTokens: 160_000, outputTokens: 95_000, cacheReadTokens: 900_000, cacheCreationTokens: 44_000, lastActive: "5d ago" },
 ].map(withTotals);
+
+// ---- per-repo daily series (GET /v1/repos/:name/series) -------------------
+
+export type SeriesPoint = {
+  day: string; // YYYY-MM-DD
+  sessions: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalTokens: number;
+  costUsd: number;
+};
+
+type ApiSeriesPoint = {
+  day: string;
+  sessions: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+};
+
+export type SeriesResult = {
+  repo: string;
+  since: string;
+  points: SeriesPoint[];
+  source: "live" | "demo";
+  error?: string;
+};
+
+function normalizePoint(p: ApiSeriesPoint): SeriesPoint {
+  return {
+    day: p.day,
+    sessions: p.sessions,
+    inputTokens: p.input_tokens,
+    outputTokens: p.output_tokens,
+    cacheReadTokens: p.cache_read_tokens,
+    cacheCreationTokens: p.cache_creation_tokens,
+    totalTokens: p.total_tokens,
+    costUsd: p.estimated_cost_usd,
+  };
+}
+
+export async function fetchRepoSeries(name: string, since = "30d"): Promise<SeriesResult> {
+  if (!API_KEY) {
+    return demoSeries(name, since, "TOKENRAT_API_KEY not set — showing demo data");
+  }
+  try {
+    const res = await fetch(
+      `${API_URL}/v1/repos/${encodeURIComponent(name)}/series?since=${encodeURIComponent(since)}`,
+      { headers: { Authorization: `Bearer ${API_KEY}` }, cache: "no-store" },
+    );
+    if (!res.ok) return demoSeries(name, since, `API responded ${res.status} — showing demo data`);
+    const data = (await res.json()) as { repo: string; since: string; points: ApiSeriesPoint[] };
+    return {
+      repo: data.repo,
+      since: data.since,
+      points: data.points.map(normalizePoint),
+      source: "live",
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "fetch failed";
+    return demoSeries(name, since, `${msg} — showing demo data`);
+  }
+}
+
+// Deterministic demo series so the detail page renders offline.
+function demoSeries(name: string, since: string, error: string): SeriesResult {
+  const base = DEMO_REPOS.find((r) => r.repo === name);
+  const seed = [...name].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const days = 12;
+  const dayMs = 86_400_000;
+  const today = Date.now();
+  const points: SeriesPoint[] = Array.from({ length: days }, (_, i) => {
+    const wobble = 0.4 + 0.6 * Math.abs(Math.sin(seed + i));
+    const scale = (base ? base.inputTokens / days : 80_000) * wobble;
+    const input = Math.round(scale);
+    const output = Math.round(scale * 0.6);
+    const cacheRead = Math.round(scale * 7);
+    const cacheCreation = Math.round(scale * 0.3);
+    const { totalTokens, costUsd } = withTotals({
+      repo: name,
+      sessions: 1 + (i % 4),
+      inputTokens: input,
+      outputTokens: output,
+      cacheReadTokens: cacheRead,
+      cacheCreationTokens: cacheCreation,
+      lastActive: "",
+    });
+    return {
+      day: new Date(today - (days - 1 - i) * dayMs).toISOString().slice(0, 10),
+      sessions: 1 + (i % 4),
+      inputTokens: input,
+      outputTokens: output,
+      cacheReadTokens: cacheRead,
+      cacheCreationTokens: cacheCreation,
+      totalTokens,
+      costUsd,
+    };
+  });
+  return { repo: name, since, points, source: "demo", error };
+}

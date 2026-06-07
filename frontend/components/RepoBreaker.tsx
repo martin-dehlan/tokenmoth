@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   RepoUsage,
   breakerLoad,
@@ -21,7 +22,10 @@ export default function RepoBreaker({ repo }: { repo: RepoUsage }) {
   const on = load !== "tripped";
 
   return (
-    <div className="border-4 border-black bg-[#161616] p-4 flex flex-col gap-3">
+    <Link
+      href={`/repo/${encodeURIComponent(repo.repo)}`}
+      className="border-4 border-black bg-[#161616] p-4 flex flex-col gap-3 hover:border-ratyellow transition-colors focus:outline-none focus:border-toxic"
+    >
       {/* header: repo + status lamp */}
       <div className="flex items-center justify-between">
         <span className="font-extrabold truncate">{repo.repo}</span>
@@ -61,6 +65,6 @@ export default function RepoBreaker({ repo }: { repo: RepoUsage }) {
         <dt>last</dt>
         <dd className="text-right text-white">{relativeTime(repo.lastActive)}</dd>
       </dl>
-    </div>
+    </Link>
   );
 }
