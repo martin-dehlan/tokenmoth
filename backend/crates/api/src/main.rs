@@ -1,10 +1,10 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -60,6 +60,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(|| async { "ok" }))
         .route("/v1/telemetry", post(ingest))
         .route("/v1/repos", get(list_repos))
+        .route("/v1/repos/:name/series", get(repo_series))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -131,6 +132,16 @@ impl Price {
     const OUTPUT: f64 = 25.0;
     const CACHE_READ: f64 = 0.5;
     const CACHE_WRITE: f64 = 6.25;
+}
+
+/// Estimated USD cost from raw token sums, rounded to cents.
+fn cost_usd(input: i64, output: i64, cache_read: i64, cache_creation: i64) -> f64 {
+    let c = (input as f64 * Price::INPUT
+        + output as f64 * Price::OUTPUT
+        + cache_read as f64 * Price::CACHE_READ
+        + cache_creation as f64 * Price::CACHE_WRITE)
+        / 1_000_000.0;
+    (c * 100.0).round() / 100.0
 }
 
 #[derive(Deserialize)]
@@ -211,17 +222,17 @@ async fn list_repos(
     let repos = rows
         .into_iter()
         .map(|r| {
-            let cost = (r.input_tokens as f64 * Price::INPUT
-                + r.output_tokens as f64 * Price::OUTPUT
-                + r.cache_read_tokens as f64 * Price::CACHE_READ
-                + r.cache_creation_tokens as f64 * Price::CACHE_WRITE)
-                / 1_000_000.0;
             RepoOut {
                 total_tokens: r.input_tokens
                     + r.output_tokens
                     + r.cache_read_tokens
                     + r.cache_creation_tokens,
-                estimated_cost_usd: (cost * 100.0).round() / 100.0,
+                estimated_cost_usd: cost_usd(
+                    r.input_tokens,
+                    r.output_tokens,
+                    r.cache_read_tokens,
+                    r.cache_creation_tokens,
+                ),
                 repo: r.repo,
                 sessions: r.sessions,
                 input_tokens: r.input_tokens,
@@ -253,6 +264,98 @@ fn parse_since(label: &str) -> Option<Option<DateTime<Utc>>> {
         _ => return None,
     };
     Some(Some(Utc::now() - dur))
+}
+
+// ---- GET /v1/repos/:name/series : daily time-series for one repo -----------
+
+#[derive(sqlx::FromRow)]
+struct SeriesRow {
+    day: NaiveDate,
+    sessions: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_creation_tokens: i64,
+}
+
+#[derive(Serialize)]
+struct SeriesPoint {
+    day: NaiveDate,
+    sessions: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_creation_tokens: i64,
+    total_tokens: i64,
+    estimated_cost_usd: f64,
+}
+
+#[derive(Serialize)]
+struct SeriesResponse {
+    repo: String,
+    since: String,
+    points: Vec<SeriesPoint>,
+}
+
+async fn repo_series(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Query(q): Query<ReposQuery>,
+) -> Result<Json<SeriesResponse>, (StatusCode, String)> {
+    let user_id = auth_user(&st.db, &headers).await?;
+
+    let since_label = q.since.unwrap_or_else(|| "30d".to_string());
+    let cutoff = parse_since(&since_label)
+        .ok_or((StatusCode::BAD_REQUEST, "invalid `since` (use 24h|7d|30d|all)".to_string()))?;
+
+    let rows: Vec<SeriesRow> = sqlx::query_as(
+        r#"
+        select
+            date_trunc('day', ended_at)::date                  as day,
+            count(*)::bigint                                   as sessions,
+            coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
+            coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
+            coalesce(sum(cache_read_input_tokens), 0)::bigint  as cache_read_tokens,
+            coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens
+        from token_logs
+        where user_id = $1
+          and repo = $2
+          and ($3::timestamptz is null or ended_at >= $3)
+        group by day
+        order by day asc
+        "#,
+    )
+    .bind(user_id)
+    .bind(&name)
+    .bind(cutoff)
+    .fetch_all(&st.db)
+    .await
+    .map_err(internal)?;
+
+    let points = rows
+        .into_iter()
+        .map(|r| SeriesPoint {
+            total_tokens: r.input_tokens
+                + r.output_tokens
+                + r.cache_read_tokens
+                + r.cache_creation_tokens,
+            estimated_cost_usd: cost_usd(
+                r.input_tokens,
+                r.output_tokens,
+                r.cache_read_tokens,
+                r.cache_creation_tokens,
+            ),
+            day: r.day,
+            sessions: r.sessions,
+            input_tokens: r.input_tokens,
+            output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens,
+            cache_creation_tokens: r.cache_creation_tokens,
+        })
+        .collect();
+
+    Ok(Json(SeriesResponse { repo: name, since: since_label, points }))
 }
 
 /// Shared Bearer-key → user_id resolution.
