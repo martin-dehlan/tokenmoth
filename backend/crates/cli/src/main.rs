@@ -97,7 +97,13 @@ fn write_settings(path: &PathBuf, root: &Value) -> anyhow::Result<()> {
 fn cmd_setup(key: &str, api_url: &str, local: bool) -> anyhow::Result<()> {
     let path = settings_path(local)?;
     let mut root = load_settings(&path)?;
-    let command = format!("tokenrat report --key {key} --api-url {api_url} --detach");
+    // Use this binary's absolute path so the hook resolves regardless of the
+    // PATH the Claude Code hook runner sees. Falls back to a bare `tokenrat`.
+    let bin = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_string))
+        .unwrap_or_else(|| "tokenrat".to_string());
+    let command = format!("{bin} report --key {key} --api-url {api_url} --detach");
 
     if install_hook(&mut root, &command)? {
         println!("tokenrat hook already installed in {}", path.display());
