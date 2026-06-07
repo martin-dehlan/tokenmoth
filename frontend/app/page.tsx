@@ -1,87 +1,163 @@
 import RepoBreaker from "@/components/RepoBreaker";
-import { fetchRepos, fmtTokens, fmtUsd } from "@/lib/data";
+import TopRail from "@/components/TopRail";
+import AnnotatedChart from "@/components/AnnotatedChart";
+import {
+  fetchRepos,
+  fetchAccountSeries,
+  fmtTokens,
+  fmtUsd,
+  INSTRUMENT_COLORS,
+} from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
+const WEEKLY_BUDGET = 50;
+
 export default async function Dashboard() {
-  const { repos, source, error, since } = await fetchRepos("30d");
+  const [{ repos, source, error, since }, series] = await Promise.all([
+    fetchRepos("30d"),
+    fetchAccountSeries("30d"),
+  ]);
+  const live = source === "live";
+
   const grandCost = repos.reduce((a, r) => a + r.costUsd, 0);
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
   const grandSessions = repos.reduce((a, r) => a + r.sessions, 0);
-  const live = source === "live";
+  const ranked = [...repos].sort((a, b) => b.costUsd - a.costUsd);
+  const maxCost = Math.max(0.01, ...ranked.map((r) => r.costUsd));
+  const activeDays = Math.max(1, series.points.length);
+  const avgPerDay = grandTokens / activeDays;
+
+  const budgetSpent = grandCost;
+  const budgetLeft = Math.max(0, WEEKLY_BUDGET - budgetSpent);
+  const budgetPct = Math.min(100, Math.round((budgetSpent / WEEKLY_BUDGET) * 100));
 
   return (
-    <main className="min-h-screen p-6 md:p-10">
-      {/* top bar */}
-      <header className="border-4 border-black bg-ratyellow text-black px-5 py-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl font-extrabold tracking-tight">tokenrat</span>
-          <span className="text-[11px] font-bold tracking-widest border-2 border-black px-2 py-0.5">
-            SICHERUNGSKASTEN
-          </span>
-        </div>
-        <span className="text-[11px] font-bold tracking-widest">
-          CLAUDE CODE · TOKEN MAINS · {since.toUpperCase()}
-        </span>
-      </header>
+    <>
+      <TopRail active="usage" since={since} />
 
-      {/* data-source / error banner */}
-      {!live && (
-        <div className="mt-4 border-4 border-black bg-danger text-black px-4 py-3 text-[11px] font-bold tracking-widest">
-          ⚠ DEMO MODE — {error ?? "no live connection"}. Set TOKENRAT_API_URL +
-          TOKENRAT_API_KEY to go live.
-        </div>
-      )}
-
-      {/* mains summary — three big gauges */}
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-        <Gauge label="TOTAL DRAW" value={fmtUsd(grandCost)} accent="text-toxic" />
-        <Gauge label="TOKENS PULLED" value={fmtTokens(grandTokens)} accent="text-ratyellow" />
-        <Gauge label="SESSIONS" value={`${grandSessions}`} accent="text-white" />
-      </section>
-
-      {/* the breaker panel */}
-      <section className="mt-6 border-4 border-black bg-black p-4">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-[11px] font-bold tracking-widest text-white/60">
-            REPO BREAKERS · {repos.length} CIRCUITS
-          </span>
-          <span
-            className={`text-[11px] font-bold tracking-widest ${
-              live ? "text-toxic" : "text-white/40"
-            }`}
-          >
-            {live ? "● LIVE" : "○ DEMO"}
-          </span>
-        </div>
-
-        {repos.length === 0 ? (
-          <div className="border-4 border-dashed border-white/20 p-10 text-center text-white/50 text-[12px] tracking-widest">
-            NO CIRCUITS YET — run{" "}
-            <span className="text-ratyellow">tokenrat setup</span> and finish a Claude
-            Code session.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {repos.map((r) => (
-              <RepoBreaker key={r.repo} repo={r} />
-            ))}
+      <main className="mx-auto max-w-5xl px-5">
+        {!live && (
+          <div className="mt-5 text-[11px] text-warn flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-warn inline-block" />
+            demo mode — {error ?? "no live connection"}. set TOKENRAT_API_URL + TOKENRAT_API_KEY to
+            go live.
           </div>
         )}
-      </section>
 
-      <footer className="mt-8 text-[11px] text-white/40 tracking-widest">
-        tokenrat // tracked via Claude Code SessionEnd hook · cost is an estimate
-      </footer>
-    </main>
+        {/* one elevated surface */}
+        <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
+          {/* HERO */}
+          <section id="hero" className="px-8 pt-8 pb-7">
+            <div className="flex flex-col lg:flex-row lg:items-end gap-x-12 gap-y-6">
+              <div className="shrink-0">
+                <div className="text-[10px] uppercase tracking-label text-faint mb-2">
+                  tokens · last {since}
+                </div>
+                <div className="font-mono font-medium text-ink text-[56px] leading-[0.9] tracking-hero tabular-nums">
+                  {fmtTokens(grandTokens)}
+                </div>
+              </div>
+
+              {/* floating annotations */}
+              <ul className="flex flex-wrap gap-x-8 gap-y-2.5 lg:pb-2">
+                <Annotation label="cost so far" value={fmtUsd(grandCost)} />
+                <Annotation label="repos" value={`${repos.length}`} />
+                <Annotation label="avg / day" value={`${fmtTokens(avgPerDay)} tok`} />
+                <Annotation label="sessions" value={`${grandSessions}`} />
+                {ranked[0] && <Annotation label="busiest" value={ranked[0].repo} mono />}
+              </ul>
+            </div>
+          </section>
+
+          {/* CHART */}
+          <section className="px-8 py-6 border-t border-hair">
+            {series.points.length > 0 ? (
+              <AnnotatedChart
+                series={[
+                  {
+                    name: "$ / day",
+                    color: "#1a7f64",
+                    values: series.points.map((p) => p.costUsd),
+                  },
+                ]}
+                xLabels={series.points.map((p) => p.day.slice(5))}
+                format={fmtUsd}
+              />
+            ) : (
+              <div className="text-[12px] text-faint py-10 text-center">
+                no activity in this window yet
+              </div>
+            )}
+          </section>
+
+          {/* INSTRUMENTS */}
+          <section id="instruments" className="px-8 pt-7 pb-6 border-t border-hair">
+            <div className="flex items-baseline justify-between mb-3">
+              <h2 className="text-[10px] uppercase tracking-label text-muted">repositories</h2>
+              <span className="text-[10px] tracking-label text-faint">
+                {repos.length} tracked {live ? "· live" : "· demo"}
+              </span>
+            </div>
+
+            {ranked.length === 0 ? (
+              <div className="text-[12px] text-faint py-8 text-center">
+                no circuits yet — run <span className="font-mono text-accent">tokenrat setup</span>{" "}
+                and finish a session.
+              </div>
+            ) : (
+              <div className="divide-y divide-hair">
+                {ranked.map((r, i) => (
+                  <RepoBreaker
+                    key={r.repo}
+                    repo={r}
+                    max={maxCost}
+                    color={INSTRUMENT_COLORS[i % INSTRUMENT_COLORS.length]}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* BUDGET STRIP */}
+          <section
+            id="budget"
+            className="px-8 py-5 border-t border-hair flex flex-wrap items-center gap-x-4 gap-y-2"
+          >
+            <span className="text-[10px] uppercase tracking-label text-muted shrink-0">
+              weekly budget
+            </span>
+            <div className="track flex-1 min-w-[8rem] !h-[10px]">
+              <i style={{ width: `${budgetPct}%`, background: "#1a7f64" }} />
+            </div>
+            <span className="font-mono text-[12px] text-ink tabular-nums">
+              {fmtUsd(budgetSpent)} spent
+            </span>
+            <span className="text-faint">·</span>
+            <span className="font-mono text-[12px] text-muted tabular-nums">
+              {fmtUsd(budgetLeft)} left of {fmtUsd(WEEKLY_BUDGET)}
+            </span>
+            <span className="text-faint">·</span>
+            <span className="text-[12px] text-muted">resets Sun</span>
+          </section>
+        </div>
+
+        <footer className="pb-10 text-[11px] text-faint">
+          tracked via Claude Code SessionEnd hook · cost is an estimate
+        </footer>
+      </main>
+    </>
   );
 }
 
-function Gauge({ label, value, accent }: { label: string; value: string; accent: string }) {
+function Annotation({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="border-4 border-black bg-[#161616] px-5 py-6">
-      <div className="text-[11px] font-bold tracking-widest text-white/50">{label}</div>
-      <div className={`mt-2 text-4xl font-extrabold ${accent}`}>{value}</div>
-    </div>
+    <li className="flex items-baseline gap-2">
+      <span className="h-1 w-1 rounded-full bg-line-strong shrink-0 translate-y-[-2px]" />
+      <span className="text-[11px] text-muted">{label}</span>
+      <span className={`text-[13px] text-ink tabular-nums ${mono ? "font-mono" : "font-mono"}`}>
+        {value}
+      </span>
+    </li>
   );
 }
