@@ -79,6 +79,19 @@ psql "$DATABASE_URL" -f seed.sql   # creates dev key tm_user_123
 
 ## CLI — install the hook
 
+**Prebuilt (no Rust toolchain)** — once a release is cut (`git tag v0.1.0 && git push --tags`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/martin-dehlan/tokenmoth/main/scripts/install-release.sh | sh
+tokenmoth setup --key tm_user_123 --api-url http://localhost:8080
+```
+
+Downloads the right binary for your OS/arch (macOS + Linux, arm64/x64) from the latest
+GitHub release into `~/.local/bin`. The `.github/workflows/release.yml` pipeline builds
+and attaches the tarballs on each tag.
+
+**From source:**
+
 ```bash
 cd backend
 cargo install --path crates/cli      # installs `tokenmoth`
