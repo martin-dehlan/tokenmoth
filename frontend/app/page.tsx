@@ -1,17 +1,9 @@
 import RepoBreaker from "@/components/RepoBreaker";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import {
-  fetchRepos,
-  fetchAccountSeries,
-  fmtTokens,
-  fmtUsd,
-  INSTRUMENT_COLORS,
-} from "@/lib/data";
+import { fetchRepos, fetchAccountSeries, fmtTokens, INSTRUMENT_COLORS } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
-
-const WEEKLY_BUDGET = 50;
 
 export default async function Dashboard() {
   const [{ repos, source, error, since }, series] = await Promise.all([
@@ -20,17 +12,12 @@ export default async function Dashboard() {
   ]);
   const live = source === "live";
 
-  const grandCost = repos.reduce((a, r) => a + r.costUsd, 0);
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
   const grandSessions = repos.reduce((a, r) => a + r.sessions, 0);
-  const ranked = [...repos].sort((a, b) => b.costUsd - a.costUsd);
-  const maxCost = Math.max(0.01, ...ranked.map((r) => r.costUsd));
+  const ranked = [...repos].sort((a, b) => b.totalTokens - a.totalTokens);
+  const maxTokens = Math.max(1, ...ranked.map((r) => r.totalTokens));
   const activeDays = Math.max(1, series.points.length);
   const avgPerDay = grandTokens / activeDays;
-
-  const budgetSpent = grandCost;
-  const budgetLeft = Math.max(0, WEEKLY_BUDGET - budgetSpent);
-  const budgetPct = Math.min(100, Math.round((budgetSpent / WEEKLY_BUDGET) * 100));
 
   return (
     <>
@@ -61,11 +48,10 @@ export default async function Dashboard() {
 
               {/* floating annotations */}
               <ul className="flex flex-wrap gap-x-8 gap-y-2.5 lg:pb-2">
-                <Annotation label="cost so far" value={fmtUsd(grandCost)} />
                 <Annotation label="repos" value={`${repos.length}`} />
                 <Annotation label="avg / day" value={`${fmtTokens(avgPerDay)} tok`} />
                 <Annotation label="sessions" value={`${grandSessions}`} />
-                {ranked[0] && <Annotation label="busiest" value={ranked[0].repo} mono />}
+                {ranked[0] && <Annotation label="busiest" value={ranked[0].repo} />}
               </ul>
             </div>
           </section>
@@ -76,13 +62,13 @@ export default async function Dashboard() {
               <AnnotatedChart
                 series={[
                   {
-                    name: "$ / day",
+                    name: "tokens / day",
                     color: "#1a7f64",
-                    values: series.points.map((p) => p.costUsd),
+                    values: series.points.map((p) => p.totalTokens),
                   },
                 ]}
                 xLabels={series.points.map((p) => p.day.slice(5))}
-                format={fmtUsd}
+                format={fmtTokens}
               />
             ) : (
               <div className="text-[12px] text-faint py-10 text-center">
@@ -92,7 +78,7 @@ export default async function Dashboard() {
           </section>
 
           {/* INSTRUMENTS */}
-          <section id="instruments" className="px-8 pt-7 pb-6 border-t border-hair">
+          <section id="instruments" className="px-8 pt-7 pb-7 border-t border-hair">
             <div className="flex items-baseline justify-between mb-3">
               <h2 className="text-[10px] uppercase tracking-label text-muted">repositories</h2>
               <span className="text-[10px] tracking-label text-faint">
@@ -111,53 +97,29 @@ export default async function Dashboard() {
                   <RepoBreaker
                     key={r.repo}
                     repo={r}
-                    max={maxCost}
+                    max={maxTokens}
                     color={INSTRUMENT_COLORS[i % INSTRUMENT_COLORS.length]}
                   />
                 ))}
               </div>
             )}
           </section>
-
-          {/* BUDGET STRIP */}
-          <section
-            id="budget"
-            className="px-8 py-5 border-t border-hair flex flex-wrap items-center gap-x-4 gap-y-2"
-          >
-            <span className="text-[10px] uppercase tracking-label text-muted shrink-0">
-              weekly budget
-            </span>
-            <div className="track flex-1 min-w-[8rem] !h-[10px]">
-              <i style={{ width: `${budgetPct}%`, background: "#1a7f64" }} />
-            </div>
-            <span className="font-mono text-[12px] text-ink tabular-nums">
-              {fmtUsd(budgetSpent)} spent
-            </span>
-            <span className="text-faint">·</span>
-            <span className="font-mono text-[12px] text-muted tabular-nums">
-              {fmtUsd(budgetLeft)} left of {fmtUsd(WEEKLY_BUDGET)}
-            </span>
-            <span className="text-faint">·</span>
-            <span className="text-[12px] text-muted">resets Sun</span>
-          </section>
         </div>
 
         <footer className="pb-10 text-[11px] text-faint">
-          tracked via Claude Code SessionEnd hook · cost is an estimate
+          tracked via Claude Code SessionEnd hook
         </footer>
       </main>
     </>
   );
 }
 
-function Annotation({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Annotation({ label, value }: { label: string; value: string }) {
   return (
     <li className="flex items-baseline gap-2">
       <span className="h-1 w-1 rounded-full bg-line-strong shrink-0 translate-y-[-2px]" />
       <span className="text-[11px] text-muted">{label}</span>
-      <span className={`text-[13px] text-ink tabular-nums ${mono ? "font-mono" : "font-mono"}`}>
-        {value}
-      </span>
+      <span className="text-[13px] text-ink tabular-nums font-mono">{value}</span>
     </li>
   );
 }
