@@ -26,3 +26,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+lambda_http = { version = "0.13", optional = true }
+
+[features]
+# Build the AWS Lambda entrypoint instead of the long-running HTTP server.
+lambda = ["dep:lambda_http"]

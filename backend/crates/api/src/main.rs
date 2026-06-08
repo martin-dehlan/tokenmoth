@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tower_http::cors::CorsLayer;
@@ -78,25 +77,36 @@ struct Telemetry {
     cache_creation_input_tokens: i64,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "tokenmoth_api=info,tower_http=info".into()),
         )
         .init();
+}
+
+/// Build the fully-wired router. DB pool has the prepared-statement cache OFF so
+/// it works behind Supabase's transaction pooler (pgBouncer) — required for the
+/// Lambda/serverless deploy. Runs migrations + optional bootstrap.
+async fn build_app() -> anyhow::Result<Router> {
+    use sqlx::postgres::PgConnectOptions;
+    use std::str::FromStr;
 
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL not set");
+    let connect_opts = PgConnectOptions::from_str(&db_url)?.statement_cache_capacity(0);
+    let max_conn: u32 = std::env::var("TOKENMOTH_DB_MAX_CONN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
     let db = PgPoolOptions::new()
-        .max_connections(10)
-        .connect(&db_url)
+        .max_connections(max_conn)
+        .connect_with(connect_opts)
         .await?;
 
     sqlx::migrate!("../../migrations").run(&db).await?;
 
-    // Optional single-user bootstrap: self-seed a user + API key on startup so a
-    // fresh deploy (e.g. docker-compose) is usable immediately. Idempotent.
+    // Optional single-user bootstrap: self-seed a user + API key on startup.
     if let Ok(key) = std::env::var("TOKENMOTH_BOOTSTRAP_KEY") {
         if !key.is_empty() {
             let email = std::env::var("TOKENMOTH_BOOTSTRAP_EMAIL")
@@ -115,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
         db,
         rate: Arc::new(RateLimiter::per_minute(rpm)),
     };
-    let app = Router::new()
+    Ok(Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/v1/telemetry", post(ingest))
         .route("/v1/repos", get(list_repos))
@@ -126,15 +136,33 @@ async fn main() -> anyhow::Result<()> {
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
-        .with_state(state);
+        .with_state(state))
+}
 
-    let addr: SocketAddr = std::env::var("BIND_ADDR")
+/// Local / container entrypoint — long-running HTTP server.
+#[cfg(not(feature = "lambda"))]
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    init_tracing();
+    let app = build_app().await?;
+    let addr: std::net::SocketAddr = std::env::var("BIND_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:8080".into())
         .parse()?;
     tracing::info!("tokenmoth-api listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// AWS Lambda entrypoint (scale-to-zero) — built with `--features lambda`.
+#[cfg(feature = "lambda")]
+#[tokio::main]
+async fn main() -> Result<(), lambda_http::Error> {
+    init_tracing();
+    let app = build_app()
+        .await
+        .map_err(|e| lambda_http::Error::from(e.to_string()))?;
+    lambda_http::run(app).await
 }
 
 /// Idempotently ensure a user + API key exist (single-user bootstrap).
