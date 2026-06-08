@@ -28,6 +28,7 @@ services:
       # Single-user bootstrap — change this to your own secret key.
       TOKENMOTH_BOOTSTRAP_KEY: tm_user_123
       TOKENMOTH_BOOTSTRAP_EMAIL: me@tokenmoth.local
+      TOKENMOTH_ADMIN_TOKEN: tm_admin_dev
     ports:
       - "8080:8080"
     depends_on:

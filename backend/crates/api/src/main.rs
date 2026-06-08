@@ -121,6 +121,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/repos", get(list_repos))
         .route("/v1/repos/:name/series", get(repo_series))
         .route("/v1/series", get(account_series))
+        .route("/v1/keys", get(list_keys).post(create_key))
+        .route("/v1/keys/:id/revoke", post(revoke_key))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
@@ -525,6 +527,141 @@ async fn account_series(
     Ok(Json(AccountSeriesResponse { since: since_label, points }))
 }
 
+// ---- key management (admin-gated) -----------------------------------------
+
+#[derive(Serialize)]
+struct KeyOut {
+    id: uuid::Uuid,
+    masked: String,
+    label: Option<String>,
+    created_at: DateTime<Utc>,
+    revoked_at: Option<DateTime<Utc>>,
+    active: bool,
+}
+
+#[derive(sqlx::FromRow)]
+struct KeyRow {
+    id: uuid::Uuid,
+    key: String,
+    label: Option<String>,
+    created_at: DateTime<Utc>,
+    revoked_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Deserialize)]
+struct CreateKeyReq {
+    #[serde(default)]
+    label: Option<String>,
+}
+
+#[derive(Serialize)]
+struct CreatedKey {
+    id: uuid::Uuid,
+    key: String, // full secret — shown ONCE
+    label: Option<String>,
+}
+
+/// Show only the shape of a key: `tm_ab12…cd34`.
+fn mask_key(k: &str) -> String {
+    let body = k.strip_prefix("tm_").unwrap_or(k);
+    if body.len() <= 8 {
+        return "tm_…".to_string();
+    }
+    format!("tm_{}…{}", &body[..4], &body[body.len() - 4..])
+}
+
+async fn list_keys(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<KeyOut>>, (StatusCode, String)> {
+    auth_admin(&headers)?;
+    let rows: Vec<KeyRow> = sqlx::query_as(
+        "select id, key, label, created_at, revoked_at from api_keys order by created_at desc",
+    )
+    .fetch_all(&st.db)
+    .await
+    .map_err(internal)?;
+
+    let out = rows
+        .into_iter()
+        .map(|r| KeyOut {
+            masked: mask_key(&r.key),
+            active: r.revoked_at.is_none(),
+            id: r.id,
+            label: r.label,
+            created_at: r.created_at,
+            revoked_at: r.revoked_at,
+        })
+        .collect();
+    Ok(Json(out))
+}
+
+async fn create_key(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<CreateKeyReq>,
+) -> Result<(StatusCode, Json<CreatedKey>), (StatusCode, String)> {
+    auth_admin(&headers)?;
+
+    // Single-user model: new keys belong to the existing (oldest) user.
+    let user_id: uuid::Uuid =
+        sqlx::query_scalar("select id from users order by created_at asc limit 1")
+            .fetch_optional(&st.db)
+            .await
+            .map_err(internal)?
+            .ok_or((StatusCode::CONFLICT, "no user exists yet".to_string()))?;
+
+    let key = format!("tm_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query("insert into api_keys (key, user_id, label) values ($1, $2, $3)")
+        .bind(&key)
+        .bind(user_id)
+        .bind(&req.label)
+        .execute(&st.db)
+        .await
+        .map_err(internal)?;
+
+    let id: uuid::Uuid = sqlx::query_scalar("select id from api_keys where key = $1")
+        .bind(&key)
+        .fetch_one(&st.db)
+        .await
+        .map_err(internal)?;
+
+    Ok((StatusCode::CREATED, Json(CreatedKey { id, key, label: req.label })))
+}
+
+async fn revoke_key(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    auth_admin(&headers)?;
+    let res = sqlx::query("update api_keys set revoked_at = now() where id = $1 and revoked_at is null")
+        .bind(id)
+        .execute(&st.db)
+        .await
+        .map_err(internal)?;
+    if res.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "no active key with that id".to_string()));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Admin gate for key management. Requires `Authorization: Bearer <TOKENMOTH_ADMIN_TOKEN>`.
+/// Returns 503 if the server has no admin token configured.
+fn auth_admin(headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
+    let configured = std::env::var("TOKENMOTH_ADMIN_TOKEN").ok().filter(|s| !s.is_empty());
+    let Some(expected) = configured else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "key management disabled (TOKENMOTH_ADMIN_TOKEN not set)".to_string(),
+        ));
+    };
+    match bearer(headers) {
+        Some(t) if t == expected => Ok(()),
+        _ => Err((StatusCode::UNAUTHORIZED, "admin auth required".to_string())),
+    }
+}
+
 /// Shared Bearer-key → user_id resolution.
 async fn auth_user(
     db: &PgPool,
@@ -602,5 +739,11 @@ mod tests {
     fn repo_from_path_basename() {
         assert_eq!(repo_from_path("/a/b/sample/"), "sample");
         assert_eq!(repo_from_path(""), "unknown");
+    }
+
+    #[test]
+    fn mask_key_hides_the_middle() {
+        assert_eq!(mask_key("tm_0123456789abcdef"), "tm_0123…cdef");
+        assert_eq!(mask_key("tm_short"), "tm_…");
     }
 }

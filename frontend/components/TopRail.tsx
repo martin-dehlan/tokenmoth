@@ -60,9 +60,13 @@ export default function TopRail({
             <span className="font-mono text-ink">{since}</span>
             <span className="text-faint">▾</span>
           </span>
-          <span className="btn" aria-label="settings">
+          <Link
+            href="/settings"
+            aria-label="settings"
+            className={`btn ${active === "settings" ? "border-accent" : ""}`}
+          >
             <span className="text-[13px] text-muted leading-none">⚙</span>
-          </span>
+          </Link>
         </div>
       </div>
     </header>
