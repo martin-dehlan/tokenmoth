@@ -24,6 +24,7 @@ services:
       DATABASE_URL: postgres://postgres:postgres@db:5432/tokenmoth
       BIND_ADDR: 0.0.0.0:8080
       RUST_LOG: tokenmoth_api=info,tower_http=info
+      TOKENMOTH_RATE_PER_MIN: 120
       # Single-user bootstrap — change this to your own secret key.
       TOKENMOTH_BOOTSTRAP_KEY: tm_user_123
       TOKENMOTH_BOOTSTRAP_EMAIL: me@tokenmoth.local
