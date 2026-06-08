@@ -133,6 +133,7 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/series", get(account_series))
         .route("/v1/keys", get(list_keys).post(create_key))
         .route("/v1/keys/:id/revoke", post(revoke_key))
+        .route("/v1/me", get(me))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
@@ -690,6 +691,99 @@ fn auth_admin(headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
     }
 }
 
+// ---- Supabase OAuth auth (#21): validate a Supabase JWT → local user --------
+
+#[derive(serde::Deserialize)]
+struct SupabaseClaims {
+    sub: String, // supabase auth user id (uuid)
+    #[serde(default)]
+    email: Option<String>,
+    #[allow(dead_code)] // validated by jsonwebtoken, not read directly
+    exp: usize,
+}
+
+#[derive(Serialize)]
+struct Me {
+    user_id: uuid::Uuid,
+    email: Option<String>,
+}
+
+/// `GET /v1/me` — verifies the caller's Supabase JWT and returns the linked
+/// local user (creating it on first login). The frontend uses this to confirm a
+/// session works end-to-end against the API.
+async fn me(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Me>, (StatusCode, String)> {
+    let (user_id, email) = auth_supabase_user(&st.db, &headers).await?;
+    Ok(Json(Me { user_id, email }))
+}
+
+/// Validate a Supabase-issued JWT (HS256 with the project's JWT secret) and
+/// resolve it to a local `users.id`, creating/linking the user on first sight.
+async fn auth_supabase_user(
+    db: &PgPool,
+    headers: &HeaderMap,
+) -> Result<(uuid::Uuid, Option<String>), (StatusCode, String)> {
+    let secret = std::env::var("SUPABASE_JWT_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "auth not configured".to_string()))?;
+    let token = bearer(headers).ok_or((StatusCode::UNAUTHORIZED, "missing token".to_string()))?;
+
+    let claims = decode_supabase_jwt(&token, &secret)
+        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("invalid token: {e}")))?;
+
+    let supa_uid = uuid::Uuid::parse_str(&claims.sub)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "bad subject".to_string()))?;
+    let user_id = get_or_create_user(db, supa_uid, claims.email.as_deref())
+        .await
+        .map_err(internal)?;
+    Ok((user_id, claims.email))
+}
+
+/// Verify a Supabase JWT (HS256, audience `authenticated`) and return its claims.
+fn decode_supabase_jwt(
+    token: &str,
+    secret: &str,
+) -> Result<SupabaseClaims, jsonwebtoken::errors::Error> {
+    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.set_audience(&["authenticated"]);
+    Ok(decode::<SupabaseClaims>(token, &DecodingKey::from_secret(secret.as_bytes()), &validation)?.claims)
+}
+
+/// Find the local user for a Supabase auth id, or create/link one.
+async fn get_or_create_user(
+    db: &PgPool,
+    supa_uid: uuid::Uuid,
+    email: Option<&str>,
+) -> anyhow::Result<uuid::Uuid> {
+    if let Some(id) =
+        sqlx::query_scalar::<_, uuid::Uuid>("select id from users where supabase_user_id = $1")
+            .bind(supa_uid)
+            .fetch_optional(db)
+            .await?
+    {
+        return Ok(id);
+    }
+    let email = email
+        .filter(|e| !e.is_empty())
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| format!("{supa_uid}@users.tokenmoth"));
+    // Link by email if that user already exists, else create.
+    let id: uuid::Uuid = sqlx::query_scalar(
+        "insert into users (email, supabase_user_id) values ($1, $2)
+         on conflict (email) do update set supabase_user_id = excluded.supabase_user_id
+         returning id",
+    )
+    .bind(&email)
+    .bind(supa_uid)
+    .fetch_one(db)
+    .await?;
+    Ok(id)
+}
+
 /// Shared Bearer-key → user_id resolution.
 async fn auth_user(
     db: &PgPool,
@@ -773,5 +867,28 @@ mod tests {
     fn mask_key_hides_the_middle() {
         assert_eq!(mask_key("tm_0123456789abcdef"), "tm_0123…cdef");
         assert_eq!(mask_key("tm_short"), "tm_…");
+    }
+
+    #[test]
+    fn supabase_jwt_validates_and_rejects_wrong_secret() {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+        let secret = "test-jwt-secret";
+        let claims = serde_json::json!({
+            "sub": "11111111-2222-3333-4444-555555555555",
+            "email": "dev@example.com",
+            "aud": "authenticated",
+            "exp": 9_999_999_999u64,
+        });
+        let token = encode(
+            &Header::new(jsonwebtoken::Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+
+        let ok = decode_supabase_jwt(&token, secret).unwrap();
+        assert_eq!(ok.email.as_deref(), Some("dev@example.com"));
+        assert_eq!(ok.sub, "11111111-2222-3333-4444-555555555555");
+        assert!(decode_supabase_jwt(&token, "wrong-secret").is_err());
     }
 }
