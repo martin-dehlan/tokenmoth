@@ -1,7 +1,7 @@
 import Link from "next/link";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import { fetchRepoSeries, fmtTokens, fmtUsd } from "@/lib/data";
+import { fetchRepoSeries, fmtTokens } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,6 @@ export default async function RepoDetail({ params }: { params: { name: string } 
 
   const sum = points.reduce(
     (a, p) => ({
-      cost: a.cost + p.costUsd,
       tokens: a.tokens + p.totalTokens,
       sessions: a.sessions + p.sessions,
       input: a.input + p.inputTokens,
@@ -20,7 +19,7 @@ export default async function RepoDetail({ params }: { params: { name: string } 
       cread: a.cread + p.cacheReadTokens,
       ccreate: a.ccreate + p.cacheCreationTokens,
     }),
-    { cost: 0, tokens: 0, sessions: 0, input: 0, output: 0, cread: 0, ccreate: 0 },
+    { tokens: 0, sessions: 0, input: 0, output: 0, cread: 0, ccreate: 0 },
   );
   const activeDays = Math.max(1, points.length);
 
@@ -64,7 +63,6 @@ export default async function RepoDetail({ params }: { params: { name: string } 
                 </div>
               </div>
               <ul className="flex flex-wrap gap-x-8 gap-y-2.5 lg:pb-2">
-                <Annotation label="cost so far" value={fmtUsd(sum.cost)} />
                 <Annotation label="sessions" value={`${sum.sessions}`} />
                 <Annotation label="avg / day" value={`${fmtTokens(sum.tokens / activeDays)} tok`} />
                 <Annotation label="active days" value={`${points.length}`} />
