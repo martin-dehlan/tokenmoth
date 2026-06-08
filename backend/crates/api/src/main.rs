@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -8,13 +8,53 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+
+/// Max telemetry body size. A real session payload is well under 1 KB.
+const MAX_BODY_BYTES: usize = 16 * 1024;
 
 #[derive(Clone)]
 struct AppState {
     db: PgPool,
+    rate: Arc<RateLimiter>,
+}
+
+/// Per-key token-bucket rate limiter (in-memory). Smooths bursts and caps a
+/// runaway hook from flooding ingest. Keyed by API key.
+struct RateLimiter {
+    capacity: f64,
+    refill_per_sec: f64,
+    buckets: Mutex<HashMap<String, (f64, Instant)>>,
+}
+
+impl RateLimiter {
+    fn per_minute(rpm: f64) -> Self {
+        Self {
+            capacity: rpm.max(1.0),
+            refill_per_sec: rpm.max(1.0) / 60.0,
+            buckets: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Returns true if a request is allowed (and consumes one token).
+    fn check(&self, key: &str, now: Instant) -> bool {
+        let mut b = self.buckets.lock().unwrap();
+        let entry = b.entry(key.to_string()).or_insert((self.capacity, now));
+        let elapsed = now.saturating_duration_since(entry.1).as_secs_f64();
+        entry.0 = (entry.0 + elapsed * self.refill_per_sec).min(self.capacity);
+        entry.1 = now;
+        if entry.0 >= 1.0 {
+            entry.0 -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// Payload built by `tokenmoth report` (NOT the raw Claude Code hook payload —
@@ -66,13 +106,22 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let state = AppState { db };
+    let rpm: f64 = std::env::var("TOKENMOTH_RATE_PER_MIN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(120.0);
+
+    let state = AppState {
+        db,
+        rate: Arc::new(RateLimiter::per_minute(rpm)),
+    };
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/v1/telemetry", post(ingest))
         .route("/v1/repos", get(list_repos))
         .route("/v1/repos/:name/series", get(repo_series))
         .route("/v1/series", get(account_series))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -112,8 +161,27 @@ async fn ingest(
     headers: HeaderMap,
     Json(t): Json<Telemetry>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    // Rate-limit before the DB hit (also throttles unauthenticated floods).
+    let key = bearer(&headers).unwrap_or_default();
+    let bucket = if key.is_empty() { "anon" } else { key.as_str() };
+    if !st.rate.check(bucket, Instant::now()) {
+        return Err((StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded".to_string()));
+    }
+
     // Auth via Authorization: Bearer <key> — never via query string (audit finding 3).
     let user_id = auth_user(&st.db, &headers).await?;
+
+    // Validate payload (audit finding 1: never trust client-supplied counts blindly).
+    if t.session_id.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "session_id is required".to_string()));
+    }
+    if t.input_tokens < 0
+        || t.output_tokens < 0
+        || t.cache_read_input_tokens < 0
+        || t.cache_creation_input_tokens < 0
+    {
+        return Err((StatusCode::BAD_REQUEST, "token counts must be non-negative".to_string()));
+    }
 
     let repo = t
         .repo
@@ -491,4 +559,48 @@ fn repo_from_path(p: &str) -> String {
 
 fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn rate_limiter_caps_burst_then_refills() {
+        let rl = RateLimiter::per_minute(60.0); // capacity 60, 1 token/sec
+        let t0 = Instant::now();
+        // Drain the full bucket of 60.
+        for _ in 0..60 {
+            assert!(rl.check("k", t0));
+        }
+        // 61st in the same instant is rejected.
+        assert!(!rl.check("k", t0));
+        // After 1s, exactly one token has refilled.
+        let t1 = t0 + Duration::from_secs(1);
+        assert!(rl.check("k", t1));
+        assert!(!rl.check("k", t1));
+    }
+
+    #[test]
+    fn rate_limiter_is_per_key() {
+        let rl = RateLimiter::per_minute(1.0); // capacity 1
+        let t0 = Instant::now();
+        assert!(rl.check("a", t0));
+        assert!(!rl.check("a", t0)); // a exhausted
+        assert!(rl.check("b", t0)); // b independent
+    }
+
+    #[test]
+    fn cost_rounds_to_cents() {
+        // 1M input @ $5 = $5.00 exactly.
+        assert_eq!(cost_usd(1_000_000, 0, 0, 0), 5.0);
+        assert_eq!(cost_usd(0, 0, 0, 0), 0.0);
+    }
+
+    #[test]
+    fn repo_from_path_basename() {
+        assert_eq!(repo_from_path("/a/b/sample/"), "sample");
+        assert_eq!(repo_from_path(""), "unknown");
+    }
 }
