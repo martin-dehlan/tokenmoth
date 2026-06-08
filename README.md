@@ -134,3 +134,16 @@ Postgres). Frontend → any Node host or static export behind your own CDN.
 ## Status
 
 MVP scaffold. See the GitHub milestones & issues for the roadmap.
+
+## Security — secret scanning
+
+[gitleaks](https://github.com/gitleaks/gitleaks) guards against committing secrets:
+
+```bash
+brew install gitleaks            # one-time
+git config core.hooksPath .githooks   # enable the pre-commit hook in this clone
+```
+
+- **Pre-commit hook** (`.githooks/pre-commit`) blocks any commit containing a secret.
+- **CI** (`.github/workflows/gitleaks.yml`) re-scans every push/PR as a backstop.
+- All `.env` / `.env.local` files are gitignored — keep real keys there, never in tracked files.
