@@ -147,3 +147,33 @@ git config core.hooksPath .githooks   # enable the pre-commit hook in this clone
 - **Pre-commit hook** (`.githooks/pre-commit`) blocks any commit containing a secret.
 - **CI** (`.github/workflows/gitleaks.yml`) re-scans every push/PR as a backstop.
 - All `.env` / `.env.local` files are gitignored — keep real keys there, never in tracked files.
+
+## Deploy (AWS App Runner + Supabase)
+
+Hosted on **AWS** (not Fly, not Vercel): Rust API on **App Runner** (image in ECR),
+Postgres + Auth on **Supabase**, Next.js frontend on **AWS Amplify**. All resources are
+tagged `Project=tokenmoth` for isolation from other projects in the same account.
+
+```bash
+# 1. build + push the amd64 image to ECR
+scripts/deploy-aws.sh build
+
+# 2. create the runtime secret (placeholder), then POPULATE it yourself
+scripts/deploy-aws.sh secret
+aws secretsmanager put-secret-value --secret-id tokenmoth/prod --region eu-central-1 \
+  --secret-string '{
+    "DATABASE_URL": "postgresql://postgres.<ref>:<db-password>@<region>.pooler.supabase.com:5432/postgres",
+    "SUPABASE_JWT_SECRET": "<from Supabase → Settings → JWT Keys>",
+    "TOKENMOTH_ADMIN_TOKEN": "<a long random string you choose>"
+  }'
+
+# 3. create/update the App Runner service (references the secret; never sees the values in git)
+scripts/deploy-aws.sh service
+```
+
+Secrets live **only** in AWS Secrets Manager (`tokenmoth/prod`), set by the operator —
+never in the repo, never in client code. App Runner injects them at runtime.
+
+**Project isolation:** everything is tagged `Project=tokenmoth`. When a teammate is given
+AWS access, attach `aws/iam-policy.json` to scope them away from
+TokenMoth. For hard isolation, move to a dedicated AWS Organizations account later.
