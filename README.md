@@ -148,32 +148,35 @@ git config core.hooksPath .githooks   # enable the pre-commit hook in this clone
 - **CI** (`.github/workflows/gitleaks.yml`) re-scans every push/PR as a backstop.
 - All `.env` / `.env.local` files are gitignored — keep real keys there, never in tracked files.
 
-## Deploy (AWS App Runner + Supabase)
+## Deploy (AWS Lambda + Supabase) — scale-to-zero
 
-Hosted on **AWS** (not Fly, not Vercel): Rust API on **App Runner** (image in ECR),
-Postgres + Auth on **Supabase**, Next.js frontend on **AWS Amplify**. All resources are
-tagged `Project=tokenmoth` for isolation from other projects in the same account.
+Hosted on **AWS** (not Fly, not Vercel): Rust API on **Lambda** (arm64, behind a public
+**API Gateway HTTP API**), Postgres + Auth on **Supabase**, frontend on **AWS Amplify**.
+Idle cost ≈ €0 (pay-per-request). All resources tagged `Project=tokenmoth`.
 
 ```bash
-# 1. build + push the amd64 image to ECR
-scripts/deploy-aws.sh build
-
-# 2. create the runtime secret (placeholder), then POPULATE it yourself
+# 1. create the runtime secret (placeholder), then POPULATE it yourself
 scripts/deploy-aws.sh secret
 aws secretsmanager put-secret-value --secret-id tokenmoth/prod --region eu-central-1 \
   --secret-string '{
-    "DATABASE_URL": "postgresql://postgres.<ref>:<db-password>@<region>.pooler.supabase.com:5432/postgres",
-    "SUPABASE_JWT_SECRET": "<from Supabase → Settings → JWT Keys>",
-    "TOKENMOTH_ADMIN_TOKEN": "<a long random string you choose>"
+    "DATABASE_URL": "postgresql://postgres.<ref>:<db-pw>@aws-0-<region>.pooler.supabase.com:5432/postgres",
+    "SUPABASE_JWT_SECRET": "<Supabase → Settings → JWT>",
+    "TOKENMOTH_ADMIN_TOKEN": "<openssl rand -hex 24>"
   }'
 
-# 3. create/update the App Runner service (references the secret; never sees the values in git)
-scripts/deploy-aws.sh service
+# 2. build the arm64 Lambda + deploy behind API Gateway (env injected from the secret)
+cd backend && cargo lambda build --release --arm64 --features lambda -p tokenmoth-api && cd ..
+scripts/deploy-lambda.sh        # prints the public API URL
+
+# 3. point the CLI hook at the cloud
+tokenmoth setup --key tm_user_123 --api-url https://<api-id>.execute-api.eu-central-1.amazonaws.com
 ```
 
-Secrets live **only** in AWS Secrets Manager (`tokenmoth/prod`), set by the operator —
-never in the repo, never in client code. App Runner injects them at runtime.
+Gotchas (codified in `scripts/deploy-lambda.sh`): use the Supabase **session pooler
+(:5432)** — the transaction pooler (6543) breaks sqlx prepared statements; public Lambda
+**Function URLs** are org-blocked, so we front with **API Gateway**; the Lambda entrypoint
+is feature-gated (`--features lambda`), local/compose stays `axum::serve`.
 
-**Project isolation:** everything is tagged `Project=tokenmoth`. When a teammate is given
-AWS access, attach `aws/cofounder-illumine-iam-policy.json` to scope them away from
-TokenMoth. For hard isolation, move to a dedicated AWS Organizations account later.
+Secrets live **only** in AWS Secrets Manager (`tokenmoth/prod`), operator-set — never in
+the repo. **Project isolation:** everything tagged `Project=tokenmoth`; attach
+`aws/cofounder-illumine-iam-policy.json` to scope a teammate away from TokenMoth.
