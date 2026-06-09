@@ -2,12 +2,21 @@ import Link from "next/link";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import { fetchRepoSeries, fmtTokens } from "@/lib/data";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function RepoDetail({ params }: { params: { name: string } }) {
   const name = decodeURIComponent(params.name);
-  const { points, source, error, since } = await fetchRepoSeries(name, "30d");
+  const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const { points, source, error, since } = await fetchRepoSeries(
+    session?.access_token ?? "",
+    name,
+    "30d",
+  );
   const live = source === "live";
 
   const sum = points.reduce(

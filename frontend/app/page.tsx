@@ -2,13 +2,20 @@ import RepoBreaker from "@/components/RepoBreaker";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import { fetchRepos, fetchAccountSeries, fmtTokens, INSTRUMENT_COLORS } from "@/lib/data";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
+  const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token ?? "";
+
   const [{ repos, source, error, since }, series] = await Promise.all([
-    fetchRepos("30d"),
-    fetchAccountSeries("30d"),
+    fetchRepos(token, "30d"),
+    fetchAccountSeries(token, "30d"),
   ]);
   const live = source === "live";
 
