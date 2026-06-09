@@ -29,7 +29,6 @@ type ApiRepo = {
 };
 
 const API_URL = process.env.TOKENMOTH_API_URL ?? "http://localhost:8080";
-const API_KEY = process.env.TOKENMOTH_API_KEY ?? "";
 
 export type ReposResult = {
   repos: RepoUsage[];
@@ -52,19 +51,14 @@ function normalize(a: ApiRepo): RepoUsage {
   };
 }
 
-export async function fetchRepos(since = "30d"): Promise<ReposResult> {
-  if (!API_KEY) {
-    return {
-      repos: DEMO_REPOS,
-      since,
-      source: "demo",
-      error: "TOKENMOTH_API_KEY not set — showing demo data",
-    };
+export async function fetchRepos(accessToken: string, since = "30d"): Promise<ReposResult> {
+  if (!accessToken) {
+    return { repos: DEMO_REPOS, since, source: "demo", error: "not signed in — showing demo data" };
   }
   try {
     const res = await fetch(
       `${API_URL}/v1/repos?since=${encodeURIComponent(since)}`,
-      { headers: { Authorization: `Bearer ${API_KEY}` }, cache: "no-store" },
+      { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" },
     );
     if (!res.ok) {
       return {
@@ -190,14 +184,18 @@ function normalizePoint(p: ApiSeriesPoint): SeriesPoint {
   };
 }
 
-export async function fetchRepoSeries(name: string, since = "30d"): Promise<SeriesResult> {
-  if (!API_KEY) {
-    return demoSeries(name, since, "TOKENMOTH_API_KEY not set — showing demo data");
+export async function fetchRepoSeries(
+  accessToken: string,
+  name: string,
+  since = "30d",
+): Promise<SeriesResult> {
+  if (!accessToken) {
+    return demoSeries(name, since, "not signed in — showing demo data");
   }
   try {
     const res = await fetch(
       `${API_URL}/v1/repos/${encodeURIComponent(name)}/series?since=${encodeURIComponent(since)}`,
-      { headers: { Authorization: `Bearer ${API_KEY}` }, cache: "no-store" },
+      { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" },
     );
     if (!res.ok) return demoSeries(name, since, `API responded ${res.status} — showing demo data`);
     const data = (await res.json()) as { repo: string; since: string; points: ApiSeriesPoint[] };
@@ -214,13 +212,13 @@ export async function fetchRepoSeries(name: string, since = "30d"): Promise<Seri
 }
 
 // Account-wide daily series across all repos (GET /v1/series).
-export async function fetchAccountSeries(since = "30d"): Promise<SeriesResult> {
-  if (!API_KEY) {
-    return demoSeries("all repos", since, "TOKENMOTH_API_KEY not set — showing demo data");
+export async function fetchAccountSeries(accessToken: string, since = "30d"): Promise<SeriesResult> {
+  if (!accessToken) {
+    return demoSeries("all repos", since, "not signed in — showing demo data");
   }
   try {
     const res = await fetch(`${API_URL}/v1/series?since=${encodeURIComponent(since)}`, {
-      headers: { Authorization: `Bearer ${API_KEY}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
     if (!res.ok) return demoSeries("all repos", since, `API responded ${res.status} — showing demo data`);

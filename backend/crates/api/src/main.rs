@@ -319,7 +319,7 @@ async fn list_repos(
     headers: HeaderMap,
     Query(q): Query<ReposQuery>,
 ) -> Result<Json<ReposResponse>, (StatusCode, String)> {
-    let user_id = auth_user(&st.db, &headers).await?;
+    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
 
     let since_label = q.since.unwrap_or_else(|| "30d".to_string());
     let cutoff = parse_since(&since_label)
@@ -435,7 +435,7 @@ async fn repo_series(
     Path(name): Path<String>,
     Query(q): Query<ReposQuery>,
 ) -> Result<Json<SeriesResponse>, (StatusCode, String)> {
-    let user_id = auth_user(&st.db, &headers).await?;
+    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
 
     let since_label = q.since.unwrap_or_else(|| "30d".to_string());
     let cutoff = parse_since(&since_label)
@@ -503,7 +503,7 @@ async fn account_series(
     headers: HeaderMap,
     Query(q): Query<ReposQuery>,
 ) -> Result<Json<AccountSeriesResponse>, (StatusCode, String)> {
-    let user_id = auth_user(&st.db, &headers).await?;
+    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
 
     let since_label = q.since.unwrap_or_else(|| "30d".to_string());
     let cutoff = parse_since(&since_label)
@@ -603,10 +603,12 @@ async fn list_keys(
     State(st): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<KeyOut>>, (StatusCode, String)> {
-    auth_admin(&headers)?;
+    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
     let rows: Vec<KeyRow> = sqlx::query_as(
-        "select id, key, label, created_at, revoked_at from api_keys order by created_at desc",
+        "select id, key, label, created_at, revoked_at from api_keys
+         where user_id = $1 order by created_at desc",
     )
+    .bind(user_id)
     .fetch_all(&st.db)
     .await
     .map_err(internal)?;
@@ -630,15 +632,7 @@ async fn create_key(
     headers: HeaderMap,
     Json(req): Json<CreateKeyReq>,
 ) -> Result<(StatusCode, Json<CreatedKey>), (StatusCode, String)> {
-    auth_admin(&headers)?;
-
-    // Single-user model: new keys belong to the existing (oldest) user.
-    let user_id: uuid::Uuid =
-        sqlx::query_scalar("select id from users order by created_at asc limit 1")
-            .fetch_optional(&st.db)
-            .await
-            .map_err(internal)?
-            .ok_or((StatusCode::CONFLICT, "no user exists yet".to_string()))?;
+    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
 
     let key = format!("tm_{}", uuid::Uuid::new_v4().simple());
     sqlx::query("insert into api_keys (key, user_id, label) values ($1, $2, $3)")
@@ -663,32 +657,19 @@ async fn revoke_key(
     headers: HeaderMap,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    auth_admin(&headers)?;
-    let res = sqlx::query("update api_keys set revoked_at = now() where id = $1 and revoked_at is null")
-        .bind(id)
-        .execute(&st.db)
-        .await
-        .map_err(internal)?;
+    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
+    let res = sqlx::query(
+        "update api_keys set revoked_at = now() where id = $1 and user_id = $2 and revoked_at is null",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(&st.db)
+    .await
+    .map_err(internal)?;
     if res.rows_affected() == 0 {
         return Err((StatusCode::NOT_FOUND, "no active key with that id".to_string()));
     }
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// Admin gate for key management. Requires `Authorization: Bearer <TOKENMOTH_ADMIN_TOKEN>`.
-/// Returns 503 if the server has no admin token configured.
-fn auth_admin(headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
-    let configured = std::env::var("TOKENMOTH_ADMIN_TOKEN").ok().filter(|s| !s.is_empty());
-    let Some(expected) = configured else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "key management disabled (TOKENMOTH_ADMIN_TOKEN not set)".to_string(),
-        ));
-    };
-    match bearer(headers) {
-        Some(t) if t == expected => Ok(()),
-        _ => Err((StatusCode::UNAUTHORIZED, "admin auth required".to_string())),
-    }
 }
 
 // ---- Supabase OAuth auth (#21): validate a Supabase JWT → local user --------
