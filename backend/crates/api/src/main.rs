@@ -21,6 +21,8 @@ const MAX_BODY_BYTES: usize = 16 * 1024;
 struct AppState {
     db: PgPool,
     rate: Arc<RateLimiter>,
+    // Supabase JWKS public keys (kid → key) for ES256 token verification.
+    jwks: Arc<Vec<(String, jsonwebtoken::DecodingKey)>>,
 }
 
 /// Per-key token-bucket rate limiter (in-memory). Smooths bursts and caps a
@@ -121,9 +123,13 @@ async fn build_app() -> anyhow::Result<Router> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(120.0);
 
+    let jwks = load_jwks().await;
+    tracing::info!("loaded {} JWKS key(s)", jwks.len());
+
     let state = AppState {
         db,
         rate: Arc::new(RateLimiter::per_minute(rpm)),
+        jwks: Arc::new(jwks),
     };
     Ok(Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -319,7 +325,7 @@ async fn list_repos(
     headers: HeaderMap,
     Query(q): Query<ReposQuery>,
 ) -> Result<Json<ReposResponse>, (StatusCode, String)> {
-    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
 
     let since_label = q.since.unwrap_or_else(|| "30d".to_string());
     let cutoff = parse_since(&since_label)
@@ -435,7 +441,7 @@ async fn repo_series(
     Path(name): Path<String>,
     Query(q): Query<ReposQuery>,
 ) -> Result<Json<SeriesResponse>, (StatusCode, String)> {
-    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
 
     let since_label = q.since.unwrap_or_else(|| "30d".to_string());
     let cutoff = parse_since(&since_label)
@@ -503,7 +509,7 @@ async fn account_series(
     headers: HeaderMap,
     Query(q): Query<ReposQuery>,
 ) -> Result<Json<AccountSeriesResponse>, (StatusCode, String)> {
-    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
 
     let since_label = q.since.unwrap_or_else(|| "30d".to_string());
     let cutoff = parse_since(&since_label)
@@ -603,7 +609,7 @@ async fn list_keys(
     State(st): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<KeyOut>>, (StatusCode, String)> {
-    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
     let rows: Vec<KeyRow> = sqlx::query_as(
         "select id, key, label, created_at, revoked_at from api_keys
          where user_id = $1 order by created_at desc",
@@ -632,7 +638,7 @@ async fn create_key(
     headers: HeaderMap,
     Json(req): Json<CreateKeyReq>,
 ) -> Result<(StatusCode, Json<CreatedKey>), (StatusCode, String)> {
-    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
 
     let key = format!("tm_{}", uuid::Uuid::new_v4().simple());
     sqlx::query("insert into api_keys (key, user_id, label) values ($1, $2, $3)")
@@ -657,7 +663,7 @@ async fn revoke_key(
     headers: HeaderMap,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let (user_id, _) = auth_supabase_user(&st.db, &headers).await?;
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
     let res = sqlx::query(
         "update api_keys set revoked_at = now() where id = $1 and user_id = $2 and revoked_at is null",
     )
@@ -696,42 +702,92 @@ async fn me(
     State(st): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Me>, (StatusCode, String)> {
-    let (user_id, email) = auth_supabase_user(&st.db, &headers).await?;
+    let (user_id, email) = auth_supabase_user(&st, &headers).await?;
     Ok(Json(Me { user_id, email }))
 }
 
-/// Validate a Supabase-issued JWT (HS256 with the project's JWT secret) and
+/// Validate a Supabase JWT (ES256 via JWKS, or legacy HS256 via the secret) and
 /// resolve it to a local `users.id`, creating/linking the user on first sight.
 async fn auth_supabase_user(
-    db: &PgPool,
+    st: &AppState,
     headers: &HeaderMap,
 ) -> Result<(uuid::Uuid, Option<String>), (StatusCode, String)> {
-    let secret = std::env::var("SUPABASE_JWT_SECRET")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "auth not configured".to_string()))?;
     let token = bearer(headers).ok_or((StatusCode::UNAUTHORIZED, "missing token".to_string()))?;
+    let secret = std::env::var("SUPABASE_JWT_SECRET").ok().filter(|s| !s.is_empty());
 
-    let claims = decode_supabase_jwt(&token, &secret)
+    let claims = decode_supabase_jwt(&token, &st.jwks, secret.as_deref())
         .map_err(|e| (StatusCode::UNAUTHORIZED, format!("invalid token: {e}")))?;
 
     let supa_uid = uuid::Uuid::parse_str(&claims.sub)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "bad subject".to_string()))?;
-    let user_id = get_or_create_user(db, supa_uid, claims.email.as_deref())
+    let user_id = get_or_create_user(&st.db, supa_uid, claims.email.as_deref())
         .await
         .map_err(internal)?;
     Ok((user_id, claims.email))
 }
 
-/// Verify a Supabase JWT (HS256, audience `authenticated`) and return its claims.
+/// Verify a Supabase JWT. ES256 → JWKS key matching the header `kid`;
+/// HS256 → the shared secret. Audience must be `authenticated`.
 fn decode_supabase_jwt(
     token: &str,
-    secret: &str,
+    jwks: &[(String, jsonwebtoken::DecodingKey)],
+    secret: Option<&str>,
 ) -> Result<SupabaseClaims, jsonwebtoken::errors::Error> {
-    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-    let mut validation = Validation::new(Algorithm::HS256);
-    validation.set_audience(&["authenticated"]);
-    Ok(decode::<SupabaseClaims>(token, &DecodingKey::from_secret(secret.as_bytes()), &validation)?.claims)
+    use jsonwebtoken::errors::ErrorKind;
+    use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
+
+    let header = decode_header(token)?;
+    let claims = match header.alg {
+        Algorithm::ES256 => {
+            let kid = header.kid.ok_or(ErrorKind::InvalidKeyFormat)?;
+            let key = jwks
+                .iter()
+                .find(|(k, _)| *k == kid)
+                .map(|(_, d)| d)
+                .ok_or(ErrorKind::InvalidKeyFormat)?;
+            let mut v = Validation::new(Algorithm::ES256);
+            v.set_audience(&["authenticated"]);
+            decode::<SupabaseClaims>(token, key, &v)?.claims
+        }
+        Algorithm::HS256 => {
+            let secret = secret.ok_or(ErrorKind::InvalidKeyFormat)?;
+            let key = DecodingKey::from_secret(secret.as_bytes());
+            let mut v = Validation::new(Algorithm::HS256);
+            v.set_audience(&["authenticated"]);
+            decode::<SupabaseClaims>(token, &key, &v)?.claims
+        }
+        _ => return Err(ErrorKind::InvalidAlgorithm.into()),
+    };
+    Ok(claims)
+}
+
+/// Fetch the Supabase JWKS (ES256 public keys) once at startup. Empty on failure
+/// (HS256 still works via the secret). Requires `SUPABASE_URL`.
+async fn load_jwks() -> Vec<(String, jsonwebtoken::DecodingKey)> {
+    let Ok(url) = std::env::var("SUPABASE_URL") else {
+        return Vec::new();
+    };
+    let endpoint = format!("{}/auth/v1/.well-known/jwks.json", url.trim_end_matches('/'));
+    let set: jsonwebtoken::jwk::JwkSet = match reqwest::get(&endpoint).await {
+        Ok(r) => match r.json().await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("JWKS parse failed: {e}");
+                return Vec::new();
+            }
+        },
+        Err(e) => {
+            tracing::warn!("JWKS fetch failed: {e}");
+            return Vec::new();
+        }
+    };
+    set.keys
+        .iter()
+        .filter_map(|jwk| {
+            let kid = jwk.common.key_id.clone()?;
+            jsonwebtoken::DecodingKey::from_jwk(jwk).ok().map(|d| (kid, d))
+        })
+        .collect()
 }
 
 /// Find the local user for a Supabase auth id, or create/link one.
@@ -867,9 +923,9 @@ mod tests {
         )
         .unwrap();
 
-        let ok = decode_supabase_jwt(&token, secret).unwrap();
+        let ok = decode_supabase_jwt(&token, &[], Some(secret)).unwrap();
         assert_eq!(ok.email.as_deref(), Some("dev@example.com"));
         assert_eq!(ok.sub, "11111111-2222-3333-4444-555555555555");
-        assert!(decode_supabase_jwt(&token, "wrong-secret").is_err());
+        assert!(decode_supabase_jwt(&token, &[], Some("wrong-secret")).is_err());
     }
 }
