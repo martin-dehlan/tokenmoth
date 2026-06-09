@@ -332,6 +332,38 @@ fn cost_usd(input: i64, output: i64, cache_read: i64, cache_creation: i64) -> f6
     (c * 100.0).round() / 100.0
 }
 
+/// Per-model API pay-as-you-go rates, USD per 1M tokens (#72/#73). Matched by
+/// family prefix; null/unknown falls back to Opus. Cache read = 10% of input,
+/// cache write = 125% of input.
+struct ModelPrice {
+    input: f64,
+    output: f64,
+    cache_read: f64,
+    cache_write: f64,
+}
+
+fn price_for(model: Option<&str>) -> ModelPrice {
+    let m = model.unwrap_or("").to_ascii_lowercase();
+    let (input, output) = if m.contains("haiku") {
+        (1.0, 5.0)
+    } else if m.contains("sonnet") {
+        (3.0, 15.0)
+    } else {
+        (5.0, 25.0) // opus / unknown fallback
+    };
+    ModelPrice { input, output, cache_read: input * 0.10, cache_write: input * 1.25 }
+}
+
+/// API-equivalent cost for one model's token totals (not rounded — sum first).
+fn cost_for(model: Option<&str>, input: i64, output: i64, cache_read: i64, cache_creation: i64) -> f64 {
+    let p = price_for(model);
+    (input as f64 * p.input
+        + output as f64 * p.output
+        + cache_read as f64 * p.cache_read
+        + cache_creation as f64 * p.cache_write)
+        / 1_000_000.0
+}
+
 #[derive(Deserialize)]
 struct ReposQuery {
     /// Time window: `24h`, `7d`, `30d`, or `all`. Defaults to `30d`.
@@ -907,6 +939,8 @@ struct DashboardResponse {
     series: Vec<SeriesPoint>,
     models: Vec<ModelOut>,
     trends: TrendsOut,
+    /// API pay-as-you-go cost of this window's usage, priced per model (#72).
+    api_cost_usd: f64,
 }
 
 async fn dashboard(
@@ -987,6 +1021,12 @@ async fn dashboard(
         "#,
     )
     .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
+    // API-equivalent cost, priced per model (#72/#73), summed then rounded to cents.
+    let api_cost_raw: f64 = model_rows
+        .iter()
+        .map(|r| cost_for(Some(&r.model), r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens))
+        .sum();
+    let api_cost_usd = (api_cost_raw * 100.0).round() / 100.0;
     let models = model_rows
         .into_iter()
         .map(|r| ModelOut {
@@ -1037,7 +1077,7 @@ async fn dashboard(
         projected_monthly_tokens: daily_avg * 30,
     };
 
-    Ok(Json(DashboardResponse { since, repos, series, models, trends }))
+    Ok(Json(DashboardResponse { since, repos, series, models, trends, api_cost_usd }))
 }
 
 // ---- GET /v1/export : CSV/JSON of the user's sessions (#29) -----------------
@@ -1327,6 +1367,19 @@ mod tests {
         // 1M input @ $5 = $5.00 exactly.
         assert_eq!(cost_usd(1_000_000, 0, 0, 0), 5.0);
         assert_eq!(cost_usd(0, 0, 0, 0), 0.0);
+    }
+
+    #[test]
+    fn api_cost_prices_per_model_family() {
+        // 1M input + 1M output, by family.
+        assert_eq!(cost_for(Some("claude-opus-4-8"), 1_000_000, 1_000_000, 0, 0), 30.0); // 5 + 25
+        assert_eq!(cost_for(Some("claude-sonnet-4-6"), 1_000_000, 1_000_000, 0, 0), 18.0); // 3 + 15
+        assert_eq!(cost_for(Some("claude-haiku-4-5"), 1_000_000, 1_000_000, 0, 0), 6.0); // 1 + 5
+        // null/unknown → Opus fallback.
+        assert_eq!(cost_for(None, 1_000_000, 0, 0, 0), 5.0);
+        assert_eq!(cost_for(Some("mystery"), 1_000_000, 0, 0, 0), 5.0);
+        // cache read = 10% input, cache write = 125% input (Opus).
+        assert!((cost_for(Some("opus"), 0, 0, 1_000_000, 1_000_000) - (0.5 + 6.25)).abs() < 1e-9);
     }
 
     #[test]
