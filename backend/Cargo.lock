@@ -2414,6 +2414,7 @@ dependencies = [
  "chrono",
  "jsonwebtoken",
  "lambda_http",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",

@@ -35,6 +35,7 @@ d = json.loads(os.environ["SEC"])
 print(json.dumps({"Variables": {
     "DATABASE_URL":            d["DATABASE_URL"],            # Supabase SESSION pooler :5432
     "SUPABASE_JWT_SECRET":     d["SUPABASE_JWT_SECRET"],
+    "SUPABASE_URL":            "https://htrizluzxopbizyrfwhg.supabase.co",  # for JWKS (ES256)
     "TOKENMOTH_ADMIN_TOKEN":   d["TOKENMOTH_ADMIN_TOKEN"],
     "TOKENMOTH_BOOTSTRAP_KEY": "tm_user_123",
     "TOKENMOTH_RATE_PER_MIN":  "120",
