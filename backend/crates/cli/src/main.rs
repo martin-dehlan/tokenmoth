@@ -252,19 +252,7 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
     let p = parse_transcript(&content);
 
     let repo = git_repo_name(&cwd).unwrap_or_else(|| repo_from_path(&cwd));
-
-    let body = json!({
-        "session_id": session_id,
-        "project_path": cwd,
-        "repo": repo,
-        "model": p.model,
-        "input_tokens": p.input,
-        "output_tokens": p.output,
-        "cache_read_input_tokens": p.cread,
-        "cache_creation_input_tokens": p.ccreate,
-        "hook_overhead_tokens": p.overhead,
-        "hook_overhead_breakdown": p.breakdown,
-    });
+    let body = telemetry_body(&session_id, &repo, &p);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
@@ -276,6 +264,27 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
         .json(&body)
         .send();
     Ok(())
+}
+
+/// Build the telemetry payload. PRIVACY INVARIANT: this is the ONLY data that
+/// leaves the machine — token counts, the model name, the repo *basename*, and
+/// per-hook *names* + counts. Never the absolute path, the transcript, or any
+/// hook/chat content (a stray `.env` pasted into a session must never escape).
+/// Keep this whitelist tight; `telemetry_body_only_whitelisted_fields` enforces it.
+fn telemetry_body(session_id: &str, repo: &str, p: &Parsed) -> Value {
+    json!({
+        "session_id": session_id,
+        // basename only — never the absolute cwd (no username / dir structure leak)
+        "project_path": repo,
+        "repo": repo,
+        "model": p.model,
+        "input_tokens": p.input,
+        "output_tokens": p.output,
+        "cache_read_input_tokens": p.cread,
+        "cache_creation_input_tokens": p.ccreate,
+        "hook_overhead_tokens": p.overhead,
+        "hook_overhead_breakdown": p.breakdown,
+    })
 }
 
 /// Aggregated transcript stats.
@@ -318,7 +327,7 @@ fn parse_transcript(content: &str) -> Parsed {
         if let Some(a) = v.get("attachment") {
             if a.get("hookEvent").is_some() {
                 if let Some(c) = a.get("content").and_then(|x| x.as_str()) {
-                    let tok = (c.len() / 4) as i64;
+                    let tok = (hook_content_len(c) / 4) as i64;
                     p.overhead += tok;
                     let name = a
                         .get("hookName")
@@ -336,6 +345,23 @@ fn parse_transcript(content: &str) -> Parsed {
 
 fn as_i64(u: &Value, k: &str) -> i64 {
     u.get(k).and_then(|x| x.as_i64()).unwrap_or(0)
+}
+
+/// Byte length of a hook's injected content. Claude Code truncates large hook
+/// outputs in the transcript, storing a preview plus `Full output saved to:
+/// <path>`. When that marker is present we measure the FULL file's size via
+/// `metadata` — the file is never read or transmitted, only its length feeds the
+/// token estimate — so overhead reflects the real injection, not the ~2 KB
+/// preview. Falls back to the in-line content length if the file is gone.
+fn hook_content_len(content: &str) -> usize {
+    const MARKER: &str = "Full output saved to: ";
+    if let Some(i) = content.find(MARKER) {
+        let path = content[i + MARKER.len()..].lines().next().unwrap_or("").trim();
+        if let Ok(meta) = std::fs::metadata(path) {
+            return meta.len() as usize;
+        }
+    }
+    content.len()
 }
 
 fn git_repo_name(cwd: &str) -> Option<String> {
@@ -441,5 +467,62 @@ mod tests {
     fn repo_basename_trims_trailing_slash() {
         assert_eq!(repo_from_path("/a/b/illumine/"), "illumine");
         assert_eq!(repo_from_path("/a/b/illumine"), "illumine");
+    }
+
+    #[test]
+    fn hook_content_len_uses_full_file_when_truncated() {
+        // no marker → in-line length
+        assert_eq!(hook_content_len("abcdefgh"), 8);
+
+        // marker present → full file size (not the preview length)
+        let path = std::env::temp_dir().join("tm_hook_full_output_test.txt");
+        std::fs::write(&path, vec![b'x'; 40_000]).unwrap();
+        let content = format!(
+            "Output too large (40KB). Full output saved to: {}\nPreview (first 2KB):\nxxxx",
+            path.display()
+        );
+        assert_eq!(hook_content_len(&content), 40_000);
+        let _ = std::fs::remove_file(&path);
+
+        // marker but missing file → falls back to in-line length
+        let missing = "Full output saved to: /no/such/file_tm_test.txt\npreview";
+        assert_eq!(hook_content_len(missing), missing.len());
+    }
+
+    #[test]
+    fn telemetry_body_only_whitelisted_fields_no_absolute_path() {
+        let p = Parsed {
+            input: 1,
+            output: 2,
+            cread: 3,
+            ccreate: 4,
+            overhead: 5,
+            breakdown: HashMap::from([("SessionStart:startup".to_string(), 5)]),
+            model: Some("claude-opus-4-8".to_string()),
+        };
+        let body = telemetry_body("sess", "tokenmoth", &p);
+        let obj = body.as_object().unwrap();
+
+        // Exact field whitelist — nothing that could carry transcript / hook text.
+        let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+                "hook_overhead_breakdown",
+                "hook_overhead_tokens",
+                "input_tokens",
+                "model",
+                "output_tokens",
+                "project_path",
+                "repo",
+                "session_id",
+            ]
+        );
+        // project_path must be the basename, never an absolute path.
+        assert_eq!(obj["project_path"], json!("tokenmoth"));
+        assert!(!obj["project_path"].as_str().unwrap().contains('/'));
     }
 }
