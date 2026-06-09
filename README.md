@@ -79,16 +79,15 @@ psql "$DATABASE_URL" -f seed.sql   # creates dev key tm_user_123
 
 ## CLI — install the hook
 
-**Prebuilt (no Rust toolchain)** — once a release is cut (`git tag v0.1.0 && git push --tags`):
+**Prebuilt (no Rust toolchain)** — public installer (binaries hosted on S3; repo stays private):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/martin-dehlan/tokenmoth/main/scripts/install-release.sh | sh
-tokenmoth setup --key tm_user_123 --api-url http://localhost:8080
+curl -fsSL https://tokenmoth-dist.s3.eu-central-1.amazonaws.com/install.sh | sh
+tokenmoth setup --key <your-key> --api-url https://api.tokenmoth.com
 ```
 
-Downloads the right binary for your OS/arch (macOS + Linux, arm64/x64) from the latest
-GitHub release into `~/.local/bin`. The `.github/workflows/release.yml` pipeline builds
-and attaches the tarballs on each tag.
+Downloads the right binary for your OS/arch (macOS + Linux, arm64/x64) into `~/.local/bin`.
+Binaries are built locally and uploaded to the public S3 bucket (`scripts/install-release.sh`).
 
 **From source:**
 
