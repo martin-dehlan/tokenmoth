@@ -1,3 +1,4 @@
+import Link from "next/link";
 import RepoBreaker from "@/components/RepoBreaker";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
@@ -95,8 +96,11 @@ export default async function Dashboard() {
 
             {ranked.length === 0 ? (
               <div className="text-[12px] text-faint py-8 text-center">
-                no circuits yet — run <span className="font-mono text-accent">tokenmoth setup</span>{" "}
-                and finish a session.
+                no circuits yet.{" "}
+                <Link href="/settings" className="text-accent underline">
+                  Get your key + install command →
+                </Link>{" "}
+                then finish a Claude Code session.
               </div>
             ) : (
               <div className="divide-y divide-hair">
