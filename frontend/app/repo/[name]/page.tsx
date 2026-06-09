@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const WINDOWS = ["24h", "7d", "30d", "90d", "all"];
+const WINDOWS = ["1h", "5h", "12h", "24h", "7d", "30d", "90d", "all"];
 
 export default async function RepoDetail({
   params,
