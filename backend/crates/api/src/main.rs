@@ -260,7 +260,45 @@ async fn ingest(
     .await
     .map_err(internal)?;
 
+    // Product analytics: ingestion milestone (#26). Fire-and-forget, env-gated.
+    posthog_capture(
+        user_id.to_string(),
+        "session_tracked",
+        serde_json::json!({
+            "repo": repo,
+            "model": t.model,
+            "input_tokens": t.input_tokens,
+            "output_tokens": t.output_tokens,
+            "cache_read_input_tokens": t.cache_read_input_tokens,
+            "cache_creation_input_tokens": t.cache_creation_input_tokens,
+        }),
+    );
+
     Ok(StatusCode::ACCEPTED)
+}
+
+/// Fire-and-forget PostHog event capture (#26). No-op unless POSTHOG_KEY is set;
+/// never blocks or fails the request.
+fn posthog_capture(distinct_id: String, event: &'static str, properties: serde_json::Value) {
+    let key = match std::env::var("POSTHOG_KEY") {
+        Ok(k) if !k.is_empty() => k,
+        _ => return,
+    };
+    let host = std::env::var("POSTHOG_HOST")
+        .unwrap_or_else(|_| "https://eu.i.posthog.com".to_string());
+    tokio::spawn(async move {
+        let body = serde_json::json!({
+            "api_key": key,
+            "event": event,
+            "distinct_id": distinct_id,
+            "properties": properties,
+        });
+        let _ = reqwest::Client::new()
+            .post(format!("{}/capture/", host.trim_end_matches('/')))
+            .json(&body)
+            .send()
+            .await;
+    });
 }
 
 // ---- GET /v1/repos : per-repo rollups for the dashboard -------------------
