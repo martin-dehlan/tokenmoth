@@ -1,21 +1,43 @@
+import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 
-// OAuth redirect target — exchanges the code for a session, then lands on the app.
+// OAuth redirect target. Sets session cookies DIRECTLY on the redirect response
+// (cookies via next/headers don't reliably attach to a redirect) and uses the
+// public host from x-forwarded-host (the Lambda's own origin is localhost).
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = request.nextUrl;
+  const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/";
 
-  if (code) {
-    const supabase = createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      // Honor the public host behind the Amplify/CloudFront proxy.
-      const forwardedHost = request.headers.get("x-forwarded-host");
-      const base = forwardedHost ? `https://${forwardedHost}` : origin;
-      return NextResponse.redirect(`${base}${next}`);
-    }
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const proto = request.headers.get("x-forwarded-proto") ?? "https";
+  const base = forwardedHost ? `${proto}://${forwardedHost}` : request.nextUrl.origin;
+
+  if (!code) {
+    return NextResponse.redirect(`${base}/login?error=missing_code`);
   }
-  return NextResponse.redirect(`${origin}/login?error=auth`);
+
+  const response = NextResponse.redirect(`${base}${next}`);
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options),
+          );
+        },
+      },
+    },
+  );
+
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    return NextResponse.redirect(`${base}/login?error=${encodeURIComponent(error.message)}`);
+  }
+  return response;
 }
