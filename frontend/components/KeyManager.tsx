@@ -13,6 +13,7 @@ type Key = {
 type Created = { id: string; key: string; label: string | null };
 
 const SETUP_API_URL = process.env.NEXT_PUBLIC_TOKENMOTH_API_URL ?? "http://localhost:8080";
+const INSTALL_CMD = "curl -fsSL https://tokenmoth-dist.s3.eu-central-1.amazonaws.com/install.sh | sh";
 
 export default function KeyManager() {
   const [keys, setKeys] = useState<Key[]>([]);
@@ -71,7 +72,7 @@ export default function KeyManager() {
   }
 
   const setupCmd = created
-    ? `tokenmoth setup --key ${created.key} --api-url ${SETUP_API_URL}`
+    ? `${INSTALL_CMD}\ntokenmoth setup --key ${created.key} --api-url ${SETUP_API_URL}`
     : "";
 
   return (
@@ -108,13 +109,18 @@ export default function KeyManager() {
               {copied === "key" ? "copied ✓" : "copy key"}
             </button>
             <button className="btn" onClick={() => copy(setupCmd, "cmd")}>
-              {copied === "cmd" ? "copied ✓" : "copy setup cmd"}
+              {copied === "cmd" ? "copied ✓" : "copy install + setup"}
             </button>
             <button className="btn text-muted" onClick={() => setCreated(null)}>
               done
             </button>
           </div>
-          <code className="font-mono text-[11px] text-muted break-all">$ {setupCmd}</code>
+          <div className="text-[10px] uppercase tracking-label text-muted pt-1">
+            install the CLI, then register the hook:
+          </div>
+          <pre className="font-mono text-[11px] text-muted whitespace-pre-wrap break-all bg-surface border border-hair rounded-btn p-2 m-0">
+            {`$ ${setupCmd.replace("\n", "\n$ ")}`}
+          </pre>
         </div>
       )}
 
