@@ -248,7 +248,7 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
         .unwrap_or_default();
     // Aggregation semantics: SUM every message's usage across the session = total
     // tokens processed (incl. repeated cache reads). `model` = last seen.
-    let (input, output, cread, ccreate, model) = parse_transcript(&content);
+    let (input, output, cread, ccreate, overhead, model) = parse_transcript(&content);
 
     let repo = git_repo_name(&cwd).unwrap_or_else(|| repo_from_path(&cwd));
 
@@ -261,6 +261,7 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
         "output_tokens": output,
         "cache_read_input_tokens": cread,
         "cache_creation_input_tokens": ccreate,
+        "hook_overhead_tokens": overhead,
     });
 
     let client = reqwest::blocking::Client::builder()
@@ -275,10 +276,13 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Sum per-message `usage` across a transcript JSONL. Returns
-/// (input, output, cache_read, cache_creation, last_model).
-fn parse_transcript(content: &str) -> (i64, i64, i64, i64, Option<String>) {
-    let (mut input, mut output, mut cread, mut ccreate) = (0i64, 0i64, 0i64, 0i64);
+/// Sum per-message `usage` across a transcript JSONL, plus estimate hook/plugin
+/// overhead from `attachment` entries that carry a `hookEvent` + injected
+/// `content` (SessionStart plugins, MCP context, PreToolUse hooks, …). Token
+/// estimate ≈ content length / 4. Returns
+/// (input, output, cache_read, cache_creation, hook_overhead, last_model).
+fn parse_transcript(content: &str) -> (i64, i64, i64, i64, i64, Option<String>) {
+    let (mut input, mut output, mut cread, mut ccreate, mut overhead) = (0i64, 0i64, 0i64, 0i64, 0i64);
     let mut model = None;
     for line in content.lines() {
         let v: Value = match serde_json::from_str(line) {
@@ -295,8 +299,18 @@ fn parse_transcript(content: &str) -> (i64, i64, i64, i64, Option<String>) {
         if let Some(m) = msg.and_then(|m| m.get("model")).and_then(|x| x.as_str()) {
             model = Some(m.to_string());
         }
+        // Hook/plugin context injected on a lifecycle event. In Claude Code
+        // transcripts this lives under `attachment` (e.g. hook_success /
+        // hook_additional_context), carrying `hookEvent` + the injected `content`.
+        if let Some(a) = v.get("attachment") {
+            if a.get("hookEvent").is_some() {
+                if let Some(c) = a.get("content").and_then(|x| x.as_str()) {
+                    overhead += (c.len() / 4) as i64;
+                }
+            }
+        }
     }
-    (input, output, cread, ccreate, model)
+    (input, output, cread, ccreate, overhead, model)
 }
 
 fn as_i64(u: &Value, k: &str) -> i64 {
@@ -336,16 +350,23 @@ mod tests {
             r#"{"type":"assistant","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":100,"output_tokens":200,"cache_read_input_tokens":10,"cache_creation_input_tokens":1}}}"#,
             "\n",
             r#"{"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":50,"output_tokens":80,"cache_read_input_tokens":5,"cache_creation_input_tokens":2}}}"#,
+            "\n",
+            // hook-injected context (8 chars → 2 tokens) — counts as overhead, not usage
+            r#"{"type":"attachment","attachment":{"type":"hook_success","hookEvent":"SessionStart","hookName":"caveman","content":"abcdefgh"}}"#,
+            "\n",
+            // attachment without a hookEvent must be ignored
+            r#"{"type":"attachment","attachment":{"type":"file","content":"ignored padding here"}}"#,
         );
-        let (i, o, cr, cc, m) = parse_transcript(t);
+        let (i, o, cr, cc, ov, m) = parse_transcript(t);
         assert_eq!((i, o, cr, cc), (150, 280, 15, 3));
+        assert_eq!(ov, 2);
         assert_eq!(m.as_deref(), Some("claude-opus-4-8"));
     }
 
     #[test]
     fn parse_transcript_ignores_garbage_lines() {
-        let (i, o, cr, cc, m) = parse_transcript("not json\n{}\n");
-        assert_eq!((i, o, cr, cc), (0, 0, 0, 0));
+        let (i, o, cr, cc, ov, m) = parse_transcript("not json\n{}\n");
+        assert_eq!((i, o, cr, cc, ov), (0, 0, 0, 0, 0));
         assert_eq!(m, None);
     }
 

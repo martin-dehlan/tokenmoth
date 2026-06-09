@@ -29,6 +29,8 @@ export default async function Dashboard({
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
   const grandSessions = repos.reduce((a, r) => a + r.sessions, 0);
   const grandCacheRead = repos.reduce((a, r) => a + r.cacheReadTokens, 0);
+  const grandOverhead = repos.reduce((a, r) => a + r.hookOverheadTokens, 0);
+  const overheadPct = grandTokens > 0 ? Math.round((grandOverhead / grandTokens) * 100) : 0;
   const ranked = [...repos].sort((a, b) => b.totalTokens - a.totalTokens);
   const activeDays = Math.max(1, series.length);
   const avgPerDay = grandTokens / activeDays;
@@ -68,6 +70,11 @@ export default async function Dashboard({
                 <Annotation label="avg / day" value={`${fmtTokens(avgPerDay)} tok`} />
                 <Annotation label="sessions" value={`${grandSessions}`} />
                 <Annotation label="cache reads" value={`${fmtTokens(grandCacheRead)} tok`} />
+                <Annotation
+                  label="overhead"
+                  value={`~${overheadPct}%`}
+                  title="estimated tokens from SessionStart hooks (plugins, MCP context injections)"
+                />
                 {ranked[0] && <Annotation label="busiest" value={ranked[0].repo} />}
                 {trends?.hasPrevious && trends.deltaPct !== null && (
                   <Annotation
@@ -159,13 +166,15 @@ function Annotation({
   label,
   value,
   accent,
+  title,
 }: {
   label: string;
   value: string;
   accent?: boolean;
+  title?: string;
 }) {
   return (
-    <li className="flex items-baseline gap-2">
+    <li className="flex items-baseline gap-2" title={title}>
       <span
         className={`h-1 w-1 rounded-full shrink-0 translate-y-[-2px] ${accent ? "bg-accent" : "bg-line-strong"}`}
       />
