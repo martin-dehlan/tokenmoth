@@ -1,8 +1,9 @@
 import Link from "next/link";
 import RepoList from "@/components/RepoList";
+import ModelBreakdown from "@/components/ModelBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import { fetchRepos, fetchAccountSeries, fmtTokens } from "@/lib/data";
+import { fetchRepos, fetchAccountSeries, fetchModels, fmtTokens } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -21,9 +22,10 @@ export default async function Dashboard({
   } = await supabase.auth.getSession();
   const token = session?.access_token ?? "";
 
-  const [{ repos, source, error }, series] = await Promise.all([
+  const [{ repos, source, error }, series, models] = await Promise.all([
     fetchRepos(token, since),
     fetchAccountSeries(token, since),
+    fetchModels(token, since),
   ]);
   const live = source === "live";
 
@@ -91,13 +93,32 @@ export default async function Dashboard({
             )}
           </section>
 
+          {/* MODELS */}
+          {models.length > 0 && (
+            <section className="px-8 pt-7 pb-7 border-t border-hair">
+              <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">by model</h2>
+              <ModelBreakdown models={models} />
+            </section>
+          )}
+
           {/* INSTRUMENTS */}
           <section id="instruments" className="px-8 pt-7 pb-7 border-t border-hair">
             <div className="flex items-baseline justify-between mb-3">
               <h2 className="text-[10px] uppercase tracking-label text-muted">repositories</h2>
-              <span className="text-[10px] tracking-label text-faint">
-                {repos.length} tracked {live ? "· live" : "· demo"}
-              </span>
+              <div className="flex items-center gap-3">
+                {ranked.length > 0 && (
+                  <a
+                    href={`/api/export?format=csv&since=${since}`}
+                    className="btn text-muted"
+                    download
+                  >
+                    export CSV
+                  </a>
+                )}
+                <span className="text-[10px] tracking-label text-faint">
+                  {repos.length} tracked {live ? "· live" : "· demo"}
+                </span>
+              </div>
             </div>
 
             {ranked.length === 0 ? (
