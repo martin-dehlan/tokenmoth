@@ -230,6 +230,60 @@ export async function fetchAccountSeries(accessToken: string, since = "30d"): Pr
   }
 }
 
+// ---- per-model rollup (GET /v1/models) ------------------------------------
+
+export type ModelUsage = {
+  model: string;
+  sessions: number;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+};
+
+type ApiModel = {
+  model: string;
+  sessions: number;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+};
+
+export async function fetchModels(accessToken: string, since = "30d"): Promise<ModelUsage[]> {
+  if (!accessToken) return [];
+  try {
+    const res = await fetch(`${API_URL}/v1/models?since=${encodeURIComponent(since)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const d = (await res.json()) as ApiModel[];
+    return d.map((m) => ({
+      model: m.model,
+      sessions: m.sessions,
+      totalTokens: m.total_tokens,
+      inputTokens: m.input_tokens,
+      outputTokens: m.output_tokens,
+      cacheReadTokens: m.cache_read_tokens,
+      cacheCreationTokens: m.cache_creation_tokens,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// Color per model family.
+export function modelColor(model: string): string {
+  const m = model.toLowerCase();
+  if (m.includes("opus")) return "#1a4f7f"; // navy
+  if (m.includes("sonnet")) return "#1a7f64"; // teal
+  if (m.includes("haiku")) return "#9a6200"; // amber
+  return "#6b7280"; // gray
+}
+
 // Gauge fill colors cycled per instrument row (teal / navy / amber / gray).
 export const INSTRUMENT_COLORS = ["#1a7f64", "#1a4f7f", "#9a6200", "#6b7280"] as const;
 
