@@ -10,6 +10,7 @@ export type RepoUsage = {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
+  hookOverheadTokens: number; // est. plugin/MCP/hook context overhead (#80)
   totalTokens: number;
   costUsd: number; // authoritative, computed server-side
   lastActive: string; // ISO 8601 from the API, or a label in demo data
@@ -23,6 +24,7 @@ type ApiRepo = {
   output_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
+  hook_overhead_tokens: number;
   total_tokens: number;
   estimated_cost_usd: number;
   last_active: string;
@@ -45,6 +47,7 @@ function normalize(a: ApiRepo): RepoUsage {
     outputTokens: a.output_tokens,
     cacheReadTokens: a.cache_read_tokens,
     cacheCreationTokens: a.cache_creation_tokens,
+    hookOverheadTokens: a.hook_overhead_tokens,
     totalTokens: a.total_tokens,
     costUsd: a.estimated_cost_usd,
     lastActive: a.last_active,
@@ -135,17 +138,18 @@ export function fmtChartLabel(dayStr: string, since: string): string {
 const PRICE = { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 } as const;
 
 function withTotals(
-  r: Omit<RepoUsage, "totalTokens" | "costUsd">,
+  r: Omit<RepoUsage, "totalTokens" | "costUsd" | "hookOverheadTokens">,
 ): RepoUsage {
   const totalTokens =
     r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheCreationTokens;
+  const hookOverheadTokens = Math.round(r.inputTokens * 0.08); // ~8% demo overhead
   const costUsd =
     (r.inputTokens * PRICE.input +
       r.outputTokens * PRICE.output +
       r.cacheReadTokens * PRICE.cacheRead +
       r.cacheCreationTokens * PRICE.cacheWrite) /
     1_000_000;
-  return { ...r, totalTokens, costUsd: Math.round(costUsd * 100) / 100 };
+  return { ...r, totalTokens, hookOverheadTokens, costUsd: Math.round(costUsd * 100) / 100 };
 }
 
 export const DEMO_REPOS: RepoUsage[] = [

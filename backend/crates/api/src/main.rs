@@ -77,6 +77,8 @@ struct Telemetry {
     cache_read_input_tokens: i64,
     #[serde(default)]
     cache_creation_input_tokens: i64,
+    #[serde(default)]
+    hook_overhead_tokens: i64,
 }
 
 fn init_tracing() {
@@ -228,6 +230,7 @@ async fn ingest(
         || t.output_tokens < 0
         || t.cache_read_input_tokens < 0
         || t.cache_creation_input_tokens < 0
+        || t.hook_overhead_tokens < 0
     {
         return Err((StatusCode::BAD_REQUEST, "token counts must be non-negative".to_string()));
     }
@@ -244,13 +247,14 @@ async fn ingest(
         r#"
         insert into token_logs
           (user_id, session_id, repo, project_path, input_tokens, output_tokens,
-           cache_read_input_tokens, cache_creation_input_tokens, model)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           cache_read_input_tokens, cache_creation_input_tokens, model, hook_overhead_tokens)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         on conflict (session_id) do update set
            input_tokens                = excluded.input_tokens,
            output_tokens               = excluded.output_tokens,
            cache_read_input_tokens     = excluded.cache_read_input_tokens,
            cache_creation_input_tokens = excluded.cache_creation_input_tokens,
+           hook_overhead_tokens        = excluded.hook_overhead_tokens,
            repo                         = excluded.repo,
            model                        = excluded.model,
            ended_at                     = now()
@@ -265,6 +269,7 @@ async fn ingest(
     .bind(t.cache_read_input_tokens)
     .bind(t.cache_creation_input_tokens)
     .bind(&t.model)
+    .bind(t.hook_overhead_tokens)
     .execute(&st.db)
     .await
     .map_err(internal)?;
@@ -380,6 +385,7 @@ struct RepoRow {
     output_tokens: i64,
     cache_read_tokens: i64,
     cache_creation_tokens: i64,
+    hook_overhead_tokens: i64,
     last_active: DateTime<Utc>,
 }
 
@@ -391,6 +397,7 @@ struct RepoOut {
     output_tokens: i64,
     cache_read_tokens: i64,
     cache_creation_tokens: i64,
+    hook_overhead_tokens: i64,
     total_tokens: i64,
     estimated_cost_usd: f64,
     last_active: DateTime<Utc>,
@@ -423,6 +430,7 @@ async fn list_repos(
             coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
             coalesce(sum(cache_read_input_tokens), 0)::bigint  as cache_read_tokens,
             coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens,
+            coalesce(sum(hook_overhead_tokens), 0)::bigint     as hook_overhead_tokens,
             max(ended_at)                                      as last_active
         from token_logs
         where user_id = $1
@@ -458,6 +466,7 @@ async fn list_repos(
                 output_tokens: r.output_tokens,
                 cache_read_tokens: r.cache_read_tokens,
                 cache_creation_tokens: r.cache_creation_tokens,
+                hook_overhead_tokens: r.hook_overhead_tokens,
                 last_active: r.last_active,
             }
         })
@@ -976,6 +985,7 @@ async fn dashboard(
                coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
                coalesce(sum(cache_read_input_tokens), 0)::bigint  as cache_read_tokens,
                coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens,
+               coalesce(sum(hook_overhead_tokens), 0)::bigint     as hook_overhead_tokens,
                max(ended_at)                                      as last_active
         from token_logs
         where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
@@ -989,7 +999,8 @@ async fn dashboard(
             total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
             estimated_cost_usd: cost_usd(r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens),
             repo: r.repo, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
-            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens, last_active: r.last_active,
+            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens,
+            hook_overhead_tokens: r.hook_overhead_tokens, last_active: r.last_active,
         })
         .collect();
 
