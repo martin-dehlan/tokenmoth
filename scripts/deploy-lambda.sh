@@ -49,6 +49,13 @@ aws lambda update-function-configuration --function-name "${FN}" --region "${REG
 rm -f "${TMP}"
 aws lambda wait function-updated --function-name "${FN}" --region "${REGION}"
 
+# Hard-bound concurrent containers so (containers × pool max_connections) stays
+# under the Supabase session-pooler 15-client cap (avoids EMAXCONNSESSION 500s).
+echo "→ setting reserved concurrency = 6 (best-effort; account may forbid)…"
+aws lambda put-function-concurrency --function-name "${FN}" --region "${REGION}" \
+  --reserved-concurrent-executions 6 >/dev/null 2>&1 \
+  || echo "  (skipped — account concurrency limit; relying on max_connections=1)"
+
 echo "→ ensuring API Gateway HTTP API…"
 API_ID="$(aws apigatewayv2 get-apis --region "${REGION}" \
   --query "Items[?Name=='${FN}'].ApiId | [0]" --output text)"

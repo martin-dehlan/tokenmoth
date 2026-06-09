@@ -97,12 +97,20 @@ async fn build_app() -> anyhow::Result<Router> {
 
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL not set");
     let connect_opts = PgConnectOptions::from_str(&db_url)?.statement_cache_capacity(0);
+    // Supabase session pooler caps total clients at 15. On Lambda, many warm/
+    // concurrent containers each holding a pool exhausts that → EMAXCONNSESSION.
+    // Keep each container small and release idle connections fast so slots recycle;
+    // a Lambda reserved-concurrency cap (deploy-lambda.sh) hard-bounds containers.
     let max_conn: u32 = std::env::var("TOKENMOTH_DB_MAX_CONN")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(5);
+        .unwrap_or(1);
     let db = PgPoolOptions::new()
         .max_connections(max_conn)
+        .min_connections(0)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .idle_timeout(std::time::Duration::from_secs(8))
+        .max_lifetime(std::time::Duration::from_secs(60))
         .connect_with(connect_opts)
         .await?;
 
