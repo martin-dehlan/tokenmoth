@@ -137,6 +137,8 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/repos", get(list_repos))
         .route("/v1/repos/:name/series", get(repo_series))
         .route("/v1/series", get(account_series))
+        .route("/v1/models", get(list_models))
+        .route("/v1/export", get(export))
         .route("/v1/keys", get(list_keys).post(create_key))
         .route("/v1/keys/:id/revoke", post(revoke_key))
         .route("/v1/me", get(me))
@@ -676,6 +678,148 @@ async fn revoke_key(
         return Err((StatusCode::NOT_FOUND, "no active key with that id".to_string()));
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- GET /v1/models : per-model rollup (#27) -------------------------------
+
+#[derive(sqlx::FromRow)]
+struct ModelRow {
+    model: String,
+    sessions: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_creation_tokens: i64,
+}
+
+#[derive(Serialize)]
+struct ModelOut {
+    model: String,
+    sessions: i64,
+    total_tokens: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_creation_tokens: i64,
+}
+
+async fn list_models(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ReposQuery>,
+) -> Result<Json<Vec<ModelOut>>, (StatusCode, String)> {
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
+    let since = q.since.unwrap_or_else(|| "30d".to_string());
+    let cutoff = parse_since(&since)
+        .ok_or((StatusCode::BAD_REQUEST, "invalid `since`".to_string()))?;
+
+    let rows: Vec<ModelRow> = sqlx::query_as(
+        r#"
+        select coalesce(nullif(model, ''), 'unknown')            as model,
+               count(*)::bigint                                  as sessions,
+               coalesce(sum(input_tokens), 0)::bigint            as input_tokens,
+               coalesce(sum(output_tokens), 0)::bigint           as output_tokens,
+               coalesce(sum(cache_read_input_tokens), 0)::bigint as cache_read_tokens,
+               coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens
+        from token_logs
+        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+        group by 1
+        order by (coalesce(sum(input_tokens),0) + coalesce(sum(output_tokens),0)
+                + coalesce(sum(cache_read_input_tokens),0) + coalesce(sum(cache_creation_input_tokens),0)) desc
+        "#,
+    )
+    .bind(user_id)
+    .bind(cutoff)
+    .fetch_all(&st.db)
+    .await
+    .map_err(internal)?;
+
+    let out = rows
+        .into_iter()
+        .map(|r| ModelOut {
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens,
+            model: r.model,
+            sessions: r.sessions,
+            input_tokens: r.input_tokens,
+            output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens,
+            cache_creation_tokens: r.cache_creation_tokens,
+        })
+        .collect();
+    Ok(Json(out))
+}
+
+// ---- GET /v1/export : CSV/JSON of the user's sessions (#29) -----------------
+
+#[derive(Deserialize)]
+struct ExportQuery {
+    since: Option<String>,
+    format: Option<String>,
+}
+
+#[derive(sqlx::FromRow, Serialize)]
+struct ExportRow {
+    session_id: String,
+    repo: String,
+    model: String,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_input_tokens: i64,
+    cache_creation_input_tokens: i64,
+    ended_at: DateTime<Utc>,
+}
+
+async fn export(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ExportQuery>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use axum::response::IntoResponse;
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
+    let since = q.since.unwrap_or_else(|| "30d".to_string());
+    let cutoff = parse_since(&since)
+        .ok_or((StatusCode::BAD_REQUEST, "invalid `since`".to_string()))?;
+
+    let rows: Vec<ExportRow> = sqlx::query_as(
+        r#"
+        select session_id, repo, coalesce(model, '') as model,
+               input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, ended_at
+        from token_logs
+        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+        order by ended_at desc
+        "#,
+    )
+    .bind(user_id)
+    .bind(cutoff)
+    .fetch_all(&st.db)
+    .await
+    .map_err(internal)?;
+
+    if q.format.as_deref() == Some("json") {
+        return Ok(Json(rows).into_response());
+    }
+
+    let mut csv = String::from(
+        "session_id,repo,model,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,ended_at\n",
+    );
+    for r in &rows {
+        csv.push_str(&format!(
+            "{},{},{},{},{},{},{},{}\n",
+            r.session_id,
+            r.repo,
+            r.model,
+            r.input_tokens,
+            r.output_tokens,
+            r.cache_read_input_tokens,
+            r.cache_creation_input_tokens,
+            r.ended_at.to_rfc3339()
+        ));
+    }
+    Ok(axum::response::Response::builder()
+        .header("content-type", "text/csv; charset=utf-8")
+        .header("content-disposition", "attachment; filename=\"tokenmoth-export.csv\"")
+        .body(axum::body::Body::from(csv))
+        .unwrap())
 }
 
 // ---- Supabase OAuth auth (#21): validate a Supabase JWT → local user --------
