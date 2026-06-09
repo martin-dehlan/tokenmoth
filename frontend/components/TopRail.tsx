@@ -1,4 +1,5 @@
 import Link from "next/link";
+import WindowSelect from "./WindowSelect";
 
 type Nav = { key: string; label: string; href: string };
 
@@ -54,11 +55,7 @@ export default function TopRail({
 
         {/* right: date chip + settings */}
         <div className="flex items-center gap-2 shrink-0">
-          <span className="btn text-muted">
-            <span className="text-faint">last</span>
-            <span className="font-mono text-ink">{since}</span>
-            <span className="text-faint">▾</span>
-          </span>
+          <WindowSelect current={since} />
           <Link
             href="/settings"
             aria-label="settings"
