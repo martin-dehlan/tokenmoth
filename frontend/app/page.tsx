@@ -1,29 +1,35 @@
 import Link from "next/link";
-import RepoBreaker from "@/components/RepoBreaker";
+import RepoList from "@/components/RepoList";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import { fetchRepos, fetchAccountSeries, fmtTokens, INSTRUMENT_COLORS } from "@/lib/data";
+import { fetchRepos, fetchAccountSeries, fmtTokens } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-export default async function Dashboard() {
+const WINDOWS = ["24h", "7d", "30d", "90d", "all"];
+
+export default async function Dashboard({
+  searchParams,
+}: {
+  searchParams: { since?: string };
+}) {
+  const since = WINDOWS.includes(searchParams.since ?? "") ? searchParams.since! : "30d";
   const supabase = createClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
   const token = session?.access_token ?? "";
 
-  const [{ repos, source, error, since }, series] = await Promise.all([
-    fetchRepos(token, "30d"),
-    fetchAccountSeries(token, "30d"),
+  const [{ repos, source, error }, series] = await Promise.all([
+    fetchRepos(token, since),
+    fetchAccountSeries(token, since),
   ]);
   const live = source === "live";
 
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
   const grandSessions = repos.reduce((a, r) => a + r.sessions, 0);
   const ranked = [...repos].sort((a, b) => b.totalTokens - a.totalTokens);
-  const maxTokens = Math.max(1, ...ranked.map((r) => r.totalTokens));
   const activeDays = Math.max(1, series.points.length);
   const avgPerDay = grandTokens / activeDays;
 
@@ -102,16 +108,7 @@ export default async function Dashboard() {
                 </Link>
               </div>
             ) : (
-              <div className="divide-y divide-hair">
-                {ranked.map((r, i) => (
-                  <RepoBreaker
-                    key={r.repo}
-                    repo={r}
-                    max={maxTokens}
-                    color={INSTRUMENT_COLORS[i % INSTRUMENT_COLORS.length]}
-                  />
-                ))}
-              </div>
+              <RepoList repos={ranked} />
             )}
           </section>
         </div>
