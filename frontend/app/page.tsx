@@ -32,6 +32,7 @@ export default async function Dashboard({
 
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
   const grandSessions = repos.reduce((a, r) => a + r.sessions, 0);
+  const grandCacheRead = repos.reduce((a, r) => a + r.cacheReadTokens, 0);
   const ranked = [...repos].sort((a, b) => b.totalTokens - a.totalTokens);
   const activeDays = Math.max(1, series.points.length);
   const avgPerDay = grandTokens / activeDays;
@@ -56,7 +57,7 @@ export default async function Dashboard({
             <div className="flex flex-col lg:flex-row lg:items-end gap-x-12 gap-y-6">
               <div className="shrink-0">
                 <div className="text-[10px] uppercase tracking-label text-faint mb-2">
-                  tokens · last {since}
+                  tokens · last {since} · excl. cache reads
                 </div>
                 <div className="font-mono font-medium text-ink text-[56px] leading-[0.9] tracking-hero tabular-nums">
                   {fmtTokens(grandTokens)}
@@ -68,6 +69,7 @@ export default async function Dashboard({
                 <Annotation label="repos" value={`${repos.length}`} />
                 <Annotation label="avg / day" value={`${fmtTokens(avgPerDay)} tok`} />
                 <Annotation label="sessions" value={`${grandSessions}`} />
+                <Annotation label="cache reads" value={`${fmtTokens(grandCacheRead)} tok`} />
                 {ranked[0] && <Annotation label="busiest" value={ranked[0].repo} />}
                 {trends?.hasPrevious && trends.deltaPct !== null && (
                   <Annotation
