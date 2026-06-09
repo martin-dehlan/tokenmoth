@@ -312,6 +312,72 @@ export async function fetchTrends(accessToken: string, since = "30d"): Promise<T
   }
 }
 
+// ---- consolidated dashboard (GET /v1/dashboard) ---------------------------
+// One request → one Lambda invocation → one DB connection (avoids the session
+// pooler's 15-client cap that 4 parallel calls were hitting; see issue #65).
+
+export type DashboardData = {
+  repos: RepoUsage[];
+  series: SeriesPoint[];
+  models: ModelUsage[];
+  trends: Trends | null;
+  source: "live" | "demo";
+  error?: string;
+};
+
+function demoDashboard(since: string, error: string): DashboardData {
+  return {
+    repos: DEMO_REPOS,
+    series: demoSeries("all repos", since, error).points,
+    models: [],
+    trends: null,
+    source: "demo",
+    error,
+  };
+}
+
+export async function fetchDashboard(accessToken: string, since = "30d"): Promise<DashboardData> {
+  if (!accessToken) return demoDashboard(since, "not signed in — showing demo data");
+  try {
+    const res = await fetch(`${API_URL}/v1/dashboard?since=${encodeURIComponent(since)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return demoDashboard(since, `API responded ${res.status} — showing demo data`);
+    const d = await res.json();
+    const t = d.trends;
+    return {
+      repos: (d.repos as ApiRepo[]).map(normalize),
+      series: (d.series as ApiSeriesPoint[]).map(normalizePoint),
+      models: (d.models as ApiModel[]).map((m) => ({
+        model: m.model,
+        sessions: m.sessions,
+        totalTokens: m.total_tokens,
+        inputTokens: m.input_tokens,
+        outputTokens: m.output_tokens,
+        cacheReadTokens: m.cache_read_tokens,
+        cacheCreationTokens: m.cache_creation_tokens,
+      })),
+      trends: t
+        ? {
+            currentTokens: t.current_tokens,
+            previousTokens: t.previous_tokens,
+            hasPrevious: t.has_previous,
+            deltaPct: t.delta_pct,
+            dailyAvgTokens: t.daily_avg_tokens,
+            projectedMonthlyTokens: t.projected_monthly_tokens,
+            currentSessions: t.current_sessions,
+            previousSessions: t.previous_sessions,
+          }
+        : null,
+      source: "live",
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "fetch failed";
+    return demoDashboard(since, `${msg} — showing demo data`);
+  }
+}
+
 // Color per model family.
 export function modelColor(model: string): string {
   const m = model.toLowerCase();

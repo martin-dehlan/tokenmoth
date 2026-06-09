@@ -3,7 +3,7 @@ import RepoList from "@/components/RepoList";
 import ModelBreakdown from "@/components/ModelBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import { fetchRepos, fetchAccountSeries, fetchModels, fetchTrends, fmtTokens } from "@/lib/data";
+import { fetchDashboard, fmtTokens } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -22,19 +22,14 @@ export default async function Dashboard({
   } = await supabase.auth.getSession();
   const token = session?.access_token ?? "";
 
-  const [{ repos, source, error }, series, models, trends] = await Promise.all([
-    fetchRepos(token, since),
-    fetchAccountSeries(token, since),
-    fetchModels(token, since),
-    fetchTrends(token, since),
-  ]);
+  const { repos, series, models, trends, source, error } = await fetchDashboard(token, since);
   const live = source === "live";
 
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
   const grandSessions = repos.reduce((a, r) => a + r.sessions, 0);
   const grandCacheRead = repos.reduce((a, r) => a + r.cacheReadTokens, 0);
   const ranked = [...repos].sort((a, b) => b.totalTokens - a.totalTokens);
-  const activeDays = Math.max(1, series.points.length);
+  const activeDays = Math.max(1, series.length);
   const avgPerDay = grandTokens / activeDays;
 
   return (
@@ -89,16 +84,16 @@ export default async function Dashboard({
 
           {/* CHART */}
           <section className="px-8 py-6 border-t border-hair">
-            {series.points.length > 0 ? (
+            {series.length > 0 ? (
               <AnnotatedChart
                 series={[
                   {
                     name: "tokens / day",
                     color: "#1a7f64",
-                    values: series.points.map((p) => p.totalTokens),
+                    values: series.map((p) => p.totalTokens),
                   },
                 ]}
-                xLabels={series.points.map((p) => p.day.slice(5))}
+                xLabels={series.map((p) => p.day.slice(5))}
                 format={fmtTokens}
               />
             ) : (
