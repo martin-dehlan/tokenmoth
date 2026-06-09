@@ -14,6 +14,7 @@
 
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
@@ -248,7 +249,7 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
         .unwrap_or_default();
     // Aggregation semantics: SUM every message's usage across the session = total
     // tokens processed (incl. repeated cache reads). `model` = last seen.
-    let (input, output, cread, ccreate, overhead, model) = parse_transcript(&content);
+    let p = parse_transcript(&content);
 
     let repo = git_repo_name(&cwd).unwrap_or_else(|| repo_from_path(&cwd));
 
@@ -256,12 +257,13 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
         "session_id": session_id,
         "project_path": cwd,
         "repo": repo,
-        "model": model,
-        "input_tokens": input,
-        "output_tokens": output,
-        "cache_read_input_tokens": cread,
-        "cache_creation_input_tokens": ccreate,
-        "hook_overhead_tokens": overhead,
+        "model": p.model,
+        "input_tokens": p.input,
+        "output_tokens": p.output,
+        "cache_read_input_tokens": p.cread,
+        "cache_creation_input_tokens": p.ccreate,
+        "hook_overhead_tokens": p.overhead,
+        "hook_overhead_breakdown": p.breakdown,
     });
 
     let client = reqwest::blocking::Client::builder()
@@ -276,14 +278,25 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Aggregated transcript stats.
+#[derive(Default)]
+struct Parsed {
+    input: i64,
+    output: i64,
+    cread: i64,
+    ccreate: i64,
+    overhead: i64,
+    /// Per-hook overhead tokens, keyed by `hookName` (#83).
+    breakdown: HashMap<String, i64>,
+    model: Option<String>,
+}
+
 /// Sum per-message `usage` across a transcript JSONL, plus estimate hook/plugin
 /// overhead from `attachment` entries that carry a `hookEvent` + injected
-/// `content` (SessionStart plugins, MCP context, PreToolUse hooks, …). Token
-/// estimate ≈ content length / 4. Returns
-/// (input, output, cache_read, cache_creation, hook_overhead, last_model).
-fn parse_transcript(content: &str) -> (i64, i64, i64, i64, i64, Option<String>) {
-    let (mut input, mut output, mut cread, mut ccreate, mut overhead) = (0i64, 0i64, 0i64, 0i64, 0i64);
-    let mut model = None;
+/// `content` (SessionStart plugins, MCP context, PreToolUse hooks, …), attributed
+/// per `hookName`. Token estimate ≈ content length / 4.
+fn parse_transcript(content: &str) -> Parsed {
+    let mut p = Parsed::default();
     for line in content.lines() {
         let v: Value = match serde_json::from_str(line) {
             Ok(v) => v,
@@ -291,26 +304,34 @@ fn parse_transcript(content: &str) -> (i64, i64, i64, i64, i64, Option<String>) 
         };
         let msg = v.get("message");
         if let Some(u) = msg.and_then(|m| m.get("usage")) {
-            input += as_i64(u, "input_tokens");
-            output += as_i64(u, "output_tokens");
-            cread += as_i64(u, "cache_read_input_tokens");
-            ccreate += as_i64(u, "cache_creation_input_tokens");
+            p.input += as_i64(u, "input_tokens");
+            p.output += as_i64(u, "output_tokens");
+            p.cread += as_i64(u, "cache_read_input_tokens");
+            p.ccreate += as_i64(u, "cache_creation_input_tokens");
         }
         if let Some(m) = msg.and_then(|m| m.get("model")).and_then(|x| x.as_str()) {
-            model = Some(m.to_string());
+            p.model = Some(m.to_string());
         }
-        // Hook/plugin context injected on a lifecycle event. In Claude Code
-        // transcripts this lives under `attachment` (e.g. hook_success /
-        // hook_additional_context), carrying `hookEvent` + the injected `content`.
+        // Hook/plugin context injected on a lifecycle event lives under
+        // `attachment` (hook_success / hook_additional_context), carrying
+        // `hookEvent` + `hookName` + the injected `content`.
         if let Some(a) = v.get("attachment") {
             if a.get("hookEvent").is_some() {
                 if let Some(c) = a.get("content").and_then(|x| x.as_str()) {
-                    overhead += (c.len() / 4) as i64;
+                    let tok = (c.len() / 4) as i64;
+                    p.overhead += tok;
+                    let name = a
+                        .get("hookName")
+                        .and_then(|x| x.as_str())
+                        .or_else(|| a.get("hookEvent").and_then(|x| x.as_str()))
+                        .unwrap_or("unknown")
+                        .to_string();
+                    *p.breakdown.entry(name).or_insert(0) += tok;
                 }
             }
         }
     }
-    (input, output, cread, ccreate, overhead, model)
+    p
 }
 
 fn as_i64(u: &Value, k: &str) -> i64 {
@@ -357,17 +378,19 @@ mod tests {
             // attachment without a hookEvent must be ignored
             r#"{"type":"attachment","attachment":{"type":"file","content":"ignored padding here"}}"#,
         );
-        let (i, o, cr, cc, ov, m) = parse_transcript(t);
-        assert_eq!((i, o, cr, cc), (150, 280, 15, 3));
-        assert_eq!(ov, 2);
-        assert_eq!(m.as_deref(), Some("claude-opus-4-8"));
+        let p = parse_transcript(t);
+        assert_eq!((p.input, p.output, p.cread, p.ccreate), (150, 280, 15, 3));
+        assert_eq!(p.overhead, 2);
+        assert_eq!(p.breakdown.get("caveman"), Some(&2));
+        assert_eq!(p.model.as_deref(), Some("claude-opus-4-8"));
     }
 
     #[test]
     fn parse_transcript_ignores_garbage_lines() {
-        let (i, o, cr, cc, ov, m) = parse_transcript("not json\n{}\n");
-        assert_eq!((i, o, cr, cc, ov), (0, 0, 0, 0, 0));
-        assert_eq!(m, None);
+        let p = parse_transcript("not json\n{}\n");
+        assert_eq!((p.input, p.output, p.cread, p.ccreate, p.overhead), (0, 0, 0, 0, 0));
+        assert!(p.breakdown.is_empty());
+        assert_eq!(p.model, None);
     }
 
     #[test]

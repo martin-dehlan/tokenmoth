@@ -403,6 +403,49 @@ export async function fetchDashboard(accessToken: string, since = "30d"): Promis
   }
 }
 
+// ---- recent sessions + per-hook overhead breakdown (GET /v1/sessions) ------
+
+export type SessionUsage = {
+  sessionId: string;
+  repo: string;
+  model: string | null;
+  totalTokens: number;
+  hookOverheadTokens: number;
+  hookOverheadBreakdown: Record<string, number>;
+  endedAt: string;
+};
+
+export async function fetchSessions(accessToken: string, since = "30d"): Promise<SessionUsage[]> {
+  if (!accessToken) return [];
+  try {
+    const res = await fetch(`${API_URL}/v1/sessions?since=${encodeURIComponent(since)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const d = (await res.json()) as Array<{
+      session_id: string;
+      repo: string;
+      model: string | null;
+      total_tokens: number;
+      hook_overhead_tokens: number;
+      hook_overhead_breakdown: Record<string, number>;
+      ended_at: string;
+    }>;
+    return d.map((s) => ({
+      sessionId: s.session_id,
+      repo: s.repo,
+      model: s.model,
+      totalTokens: s.total_tokens,
+      hookOverheadTokens: s.hook_overhead_tokens,
+      hookOverheadBreakdown: s.hook_overhead_breakdown ?? {},
+      endedAt: s.ended_at,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // Color per model family.
 export function modelColor(model: string): string {
   const m = model.toLowerCase();

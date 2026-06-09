@@ -79,6 +79,8 @@ struct Telemetry {
     cache_creation_input_tokens: i64,
     #[serde(default)]
     hook_overhead_tokens: i64,
+    #[serde(default)]
+    hook_overhead_breakdown: serde_json::Value,
 }
 
 fn init_tracing() {
@@ -148,6 +150,7 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/repos/:name/series", get(repo_series))
         .route("/v1/series", get(account_series))
         .route("/v1/dashboard", get(dashboard))
+        .route("/v1/sessions", get(list_sessions))
         .route("/v1/models", get(list_models))
         .route("/v1/trends", get(trends))
         .route("/v1/export", get(export))
@@ -247,14 +250,16 @@ async fn ingest(
         r#"
         insert into token_logs
           (user_id, session_id, repo, project_path, input_tokens, output_tokens,
-           cache_read_input_tokens, cache_creation_input_tokens, model, hook_overhead_tokens)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           cache_read_input_tokens, cache_creation_input_tokens, model, hook_overhead_tokens,
+           hook_overhead_breakdown)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         on conflict (session_id) do update set
            input_tokens                = excluded.input_tokens,
            output_tokens               = excluded.output_tokens,
            cache_read_input_tokens     = excluded.cache_read_input_tokens,
            cache_creation_input_tokens = excluded.cache_creation_input_tokens,
            hook_overhead_tokens        = excluded.hook_overhead_tokens,
+           hook_overhead_breakdown      = excluded.hook_overhead_breakdown,
            repo                         = excluded.repo,
            model                        = excluded.model,
            ended_at                     = now()
@@ -270,6 +275,13 @@ async fn ingest(
     .bind(t.cache_creation_input_tokens)
     .bind(&t.model)
     .bind(t.hook_overhead_tokens)
+    .bind(sqlx::types::Json(
+        if t.hook_overhead_breakdown.is_null() {
+            serde_json::json!({})
+        } else {
+            t.hook_overhead_breakdown.clone()
+        },
+    ))
     .execute(&st.db)
     .await
     .map_err(internal)?;
@@ -1104,6 +1116,75 @@ async fn dashboard(
     };
 
     Ok(Json(DashboardResponse { since, repos, series, models, trends, api_cost_usd }))
+}
+
+// ---- GET /v1/sessions : recent sessions + per-hook overhead breakdown (#83) -
+
+#[derive(sqlx::FromRow)]
+struct SessionRow {
+    session_id: String,
+    repo: String,
+    model: Option<String>,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_creation_tokens: i64,
+    hook_overhead_tokens: i64,
+    hook_overhead_breakdown: sqlx::types::Json<HashMap<String, i64>>,
+    ended_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct SessionOut {
+    session_id: String,
+    repo: String,
+    model: Option<String>,
+    total_tokens: i64,
+    hook_overhead_tokens: i64,
+    hook_overhead_breakdown: HashMap<String, i64>,
+    ended_at: DateTime<Utc>,
+}
+
+async fn list_sessions(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ReposQuery>,
+) -> Result<Json<Vec<SessionOut>>, (StatusCode, String)> {
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
+    let since = q.since.unwrap_or_else(|| "30d".to_string());
+    let cutoff = parse_since(&since)
+        .ok_or((StatusCode::BAD_REQUEST, "invalid `since`".to_string()))?;
+
+    let rows: Vec<SessionRow> = sqlx::query_as(
+        r#"
+        select session_id, repo, model,
+               input_tokens, output_tokens,
+               cache_creation_input_tokens as cache_creation_tokens,
+               hook_overhead_tokens, hook_overhead_breakdown, ended_at
+        from token_logs
+        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+        order by ended_at desc
+        limit 200
+        "#,
+    )
+    .bind(user_id)
+    .bind(cutoff)
+    .fetch_all(&st.db)
+    .await
+    .map_err(internal)?;
+
+    let out = rows
+        .into_iter()
+        .map(|r| SessionOut {
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
+            session_id: r.session_id,
+            repo: r.repo,
+            model: r.model,
+            hook_overhead_tokens: r.hook_overhead_tokens,
+            hook_overhead_breakdown: r.hook_overhead_breakdown.0,
+            ended_at: r.ended_at,
+        })
+        .collect();
+    Ok(Json(out))
 }
 
 // ---- GET /v1/export : CSV/JSON of the user's sessions (#29) -----------------
