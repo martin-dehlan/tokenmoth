@@ -29,7 +29,9 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // Gate everything the matcher covers (login + /auth/* are excluded below).
-  if (!user) {
+  // The root path is public: it serves the marketing landing page to guests
+  // and the dashboard to authenticated users (branch lives in app/page.tsx).
+  if (!user && request.nextUrl.pathname !== "/") {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
