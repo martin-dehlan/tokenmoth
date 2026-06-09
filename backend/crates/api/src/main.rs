@@ -4,7 +4,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -502,11 +502,21 @@ fn parse_window_duration(label: &str) -> Option<Duration> {
     }
 }
 
+fn determine_grouping_unit(since: &str) -> &'static str {
+    match since {
+        "1h" => "minute",
+        "5h" => "minute",
+        "12h" => "hour",
+        "24h" => "hour",
+        _ => "day",
+    }
+}
+
 // ---- GET /v1/repos/:name/series : daily time-series for one repo -----------
 
 #[derive(sqlx::FromRow)]
 struct SeriesRow {
-    day: NaiveDate,
+    day: DateTime<Utc>,
     sessions: i64,
     input_tokens: i64,
     output_tokens: i64,
@@ -516,7 +526,7 @@ struct SeriesRow {
 
 #[derive(Serialize)]
 struct SeriesPoint {
-    day: NaiveDate,
+    day: DateTime<Utc>,
     sessions: i64,
     input_tokens: i64,
     output_tokens: i64,
@@ -544,11 +554,12 @@ async fn repo_series(
     let since_label = q.since.unwrap_or_else(|| "30d".to_string());
     let cutoff = parse_since(&since_label)
         .ok_or((StatusCode::BAD_REQUEST, "invalid `since` (use 24h|7d|30d|all)".to_string()))?;
+    let unit = determine_grouping_unit(&since_label);
 
     let rows: Vec<SeriesRow> = sqlx::query_as(
         r#"
         select
-            date_trunc('day', ended_at)::date                  as day,
+            date_trunc($4, ended_at)                           as day,
             count(*)::bigint                                   as sessions,
             coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
             coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
@@ -565,6 +576,7 @@ async fn repo_series(
     .bind(user_id)
     .bind(&name)
     .bind(cutoff)
+    .bind(unit)
     .fetch_all(&st.db)
     .await
     .map_err(internal)?;
@@ -611,11 +623,12 @@ async fn account_series(
     let since_label = q.since.unwrap_or_else(|| "30d".to_string());
     let cutoff = parse_since(&since_label)
         .ok_or((StatusCode::BAD_REQUEST, "invalid `since` (use 24h|7d|30d|all)".to_string()))?;
+    let unit = determine_grouping_unit(&since_label);
 
     let rows: Vec<SeriesRow> = sqlx::query_as(
         r#"
         select
-            date_trunc('day', ended_at)::date                  as day,
+            date_trunc($3, ended_at)                           as day,
             count(*)::bigint                                   as sessions,
             coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
             coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
@@ -630,6 +643,7 @@ async fn account_series(
     )
     .bind(user_id)
     .bind(cutoff)
+    .bind(unit)
     .fetch_all(&st.db)
     .await
     .map_err(internal)?;
@@ -980,9 +994,10 @@ async fn dashboard(
         .collect();
 
     // 2) account-wide daily series
+    let unit = determine_grouping_unit(&since);
     let series_rows: Vec<SeriesRow> = sqlx::query_as(
         r#"
-        select date_trunc('day', ended_at)::date                 as day,
+        select date_trunc($3, ended_at)                          as day,
                count(*)::bigint                                   as sessions,
                coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
                coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
@@ -993,7 +1008,7 @@ async fn dashboard(
         group by day order by day asc
         "#,
     )
-    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
+    .bind(user_id).bind(cutoff).bind(unit).fetch_all(&st.db).await.map_err(internal)?;
     let series = series_rows
         .into_iter()
         .map(|r| SeriesPoint {

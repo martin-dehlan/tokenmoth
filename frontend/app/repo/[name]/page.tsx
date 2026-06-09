@@ -1,7 +1,7 @@
 import Link from "next/link";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import { fetchRepoSeries, fmtTokens } from "@/lib/data";
+import { fetchRepoSeries, fmtTokens, fmtChartLabel } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -97,7 +97,7 @@ export default async function RepoDetail({
                   { name: "input", color: "#1a4f7f", dashed: true, values: points.map((p) => p.inputTokens) },
                   { name: "output", color: "#9a6200", dashed: true, values: points.map((p) => p.outputTokens) },
                 ]}
-                xLabels={points.map((p) => p.day.slice(5))}
+                xLabels={points.map((p) => fmtChartLabel(p.day, since))}
                 format={fmtTokens}
               />
             ) : (
