@@ -6,16 +6,25 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-export default async function RepoDetail({ params }: { params: { name: string } }) {
+const WINDOWS = ["24h", "7d", "30d", "90d", "all"];
+
+export default async function RepoDetail({
+  params,
+  searchParams,
+}: {
+  params: { name: string };
+  searchParams: { since?: string };
+}) {
   const name = decodeURIComponent(params.name);
+  const since = WINDOWS.includes(searchParams.since ?? "") ? searchParams.since! : "30d";
   const supabase = createClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  const { points, source, error, since } = await fetchRepoSeries(
+  const { points, source, error } = await fetchRepoSeries(
     session?.access_token ?? "",
     name,
-    "30d",
+    since,
   );
   const live = source === "live";
 
