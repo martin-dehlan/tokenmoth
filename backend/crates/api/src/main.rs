@@ -967,6 +967,13 @@ async fn trends(
 // invocation → one DB connection (queries run sequentially on st.db), so it stays
 // well under the Supabase session-pooler 15-client cap.
 
+#[derive(sqlx::FromRow, Serialize)]
+struct HookOverheadOut {
+    hook: String,
+    tokens: i64,
+    sessions: i64,
+}
+
 #[derive(Serialize)]
 struct DashboardResponse {
     since: String,
@@ -976,6 +983,8 @@ struct DashboardResponse {
     trends: TrendsOut,
     /// API pay-as-you-go cost of this window's usage, priced per model (#72).
     api_cost_usd: f64,
+    /// Total overhead tokens per hook/plugin across the window, ranked (#85).
+    overhead_by_hook: Vec<HookOverheadOut>,
 }
 
 async fn dashboard(
@@ -1115,7 +1124,23 @@ async fn dashboard(
         projected_monthly_tokens: daily_avg * 30,
     };
 
-    Ok(Json(DashboardResponse { since, repos, series, models, trends, api_cost_usd }))
+    // 5) overhead aggregated per hook/plugin across the window (#85)
+    let overhead_by_hook: Vec<HookOverheadOut> = sqlx::query_as(
+        r#"
+        select key as hook,
+               coalesce(sum(value::bigint), 0)::bigint as tokens,
+               count(distinct session_id)::bigint      as sessions
+        from token_logs t, lateral jsonb_each_text(t.hook_overhead_breakdown) e(key, value)
+        where t.user_id = $1 and ($2::timestamptz is null or t.ended_at >= $2)
+        group by key
+        order by tokens desc
+        "#,
+    )
+    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
+
+    Ok(Json(DashboardResponse {
+        since, repos, series, models, trends, api_cost_usd, overhead_by_hook,
+    }))
 }
 
 // ---- GET /v1/sessions : recent sessions + per-hook overhead breakdown (#83) -
@@ -1144,15 +1169,22 @@ struct SessionOut {
     ended_at: DateTime<Utc>,
 }
 
+#[derive(Deserialize)]
+struct SessionsQuery {
+    since: Option<String>,
+    repo: Option<String>,
+}
+
 async fn list_sessions(
     State(st): State<AppState>,
     headers: HeaderMap,
-    Query(q): Query<ReposQuery>,
+    Query(q): Query<SessionsQuery>,
 ) -> Result<Json<Vec<SessionOut>>, (StatusCode, String)> {
     let (user_id, _) = auth_supabase_user(&st, &headers).await?;
     let since = q.since.unwrap_or_else(|| "30d".to_string());
     let cutoff = parse_since(&since)
         .ok_or((StatusCode::BAD_REQUEST, "invalid `since`".to_string()))?;
+    let repo = q.repo.filter(|r| !r.is_empty());
 
     let rows: Vec<SessionRow> = sqlx::query_as(
         r#"
@@ -1161,13 +1193,16 @@ async fn list_sessions(
                cache_creation_input_tokens as cache_creation_tokens,
                hook_overhead_tokens, hook_overhead_breakdown, ended_at
         from token_logs
-        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+        where user_id = $1
+          and ($2::timestamptz is null or ended_at >= $2)
+          and ($3::text is null or repo = $3)
         order by ended_at desc
         limit 200
         "#,
     )
     .bind(user_id)
     .bind(cutoff)
+    .bind(&repo)
     .fetch_all(&st.db)
     .await
     .map_err(internal)?;

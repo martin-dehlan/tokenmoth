@@ -338,12 +338,15 @@ export async function fetchTrends(accessToken: string, since = "30d"): Promise<T
 // One request → one Lambda invocation → one DB connection (avoids the session
 // pooler's 15-client cap that 4 parallel calls were hitting; see issue #65).
 
+export type HookOverhead = { hook: string; tokens: number; sessions: number };
+
 export type DashboardData = {
   repos: RepoUsage[];
   series: SeriesPoint[];
   models: ModelUsage[];
   trends: Trends | null;
   apiCostUsd: number; // API pay-as-you-go equivalent for the window (#72)
+  overheadByHook: HookOverhead[]; // overhead tokens per plugin/hook (#85)
   source: "live" | "demo";
   error?: string;
 };
@@ -355,6 +358,11 @@ function demoDashboard(since: string, error: string): DashboardData {
     models: [],
     trends: null,
     apiCostUsd: DEMO_REPOS.reduce((a, r) => a + r.costUsd, 0),
+    overheadByHook: [
+      { hook: "vercel-plugin", tokens: 12400, sessions: 18 },
+      { hook: "caveman", tokens: 3100, sessions: 18 },
+      { hook: "PreToolUse:Bash", tokens: 900, sessions: 12 },
+    ],
     source: "demo",
     error,
   };
@@ -395,6 +403,13 @@ export async function fetchDashboard(accessToken: string, since = "30d"): Promis
           }
         : null,
       apiCostUsd: typeof d.api_cost_usd === "number" ? d.api_cost_usd : 0,
+      overheadByHook: Array.isArray(d.overhead_by_hook)
+        ? d.overhead_by_hook.map((h: { hook: string; tokens: number; sessions: number }) => ({
+            hook: h.hook,
+            tokens: h.tokens,
+            sessions: h.sessions,
+          }))
+        : [],
       source: "live",
     };
   } catch (e) {
@@ -415,10 +430,15 @@ export type SessionUsage = {
   endedAt: string;
 };
 
-export async function fetchSessions(accessToken: string, since = "30d"): Promise<SessionUsage[]> {
+export async function fetchSessions(
+  accessToken: string,
+  since = "30d",
+  repo?: string,
+): Promise<SessionUsage[]> {
   if (!accessToken) return [];
+  const repoParam = repo ? `&repo=${encodeURIComponent(repo)}` : "";
   try {
-    const res = await fetch(`${API_URL}/v1/sessions?since=${encodeURIComponent(since)}`, {
+    const res = await fetch(`${API_URL}/v1/sessions?since=${encodeURIComponent(since)}${repoParam}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
