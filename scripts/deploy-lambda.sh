@@ -21,7 +21,10 @@ FN_ARN="arn:aws:lambda:${REGION}:${ACCOUNT}:function:${FN}"
 
 echo "→ deploying Lambda (arm64)…"
 cargo lambda deploy "${FN}" --memory 512 --timeout 30 --tag Project=tokenmoth --region "${REGION}"
+# Wait for the CODE update to fully settle before touching config (avoids
+# ResourceConflictException "update in progress").
 aws lambda wait function-active --function-name "${FN}" --region "${REGION}"
+aws lambda wait function-updated --function-name "${FN}" --region "${REGION}"
 
 echo "→ injecting runtime env from ${SECRET} (secrets not printed)…"
 SEC="$(aws secretsmanager get-secret-value --secret-id "${SECRET}" --region "${REGION}" --query SecretString --output text)"
