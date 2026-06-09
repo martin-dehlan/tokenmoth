@@ -145,6 +145,7 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/repos", get(list_repos))
         .route("/v1/repos/:name/series", get(repo_series))
         .route("/v1/series", get(account_series))
+        .route("/v1/dashboard", get(dashboard))
         .route("/v1/models", get(list_models))
         .route("/v1/trends", get(trends))
         .route("/v1/export", get(export))
@@ -892,6 +893,151 @@ async fn trends(
         daily_avg_tokens: daily_avg,
         projected_monthly_tokens: daily_avg * 30,
     }))
+}
+
+// ---- GET /v1/dashboard : repos + series + models + trends in ONE response --
+// (#65) Collapses the dashboard's 4 parallel calls into one request → one Lambda
+// invocation → one DB connection (queries run sequentially on st.db), so it stays
+// well under the Supabase session-pooler 15-client cap.
+
+#[derive(Serialize)]
+struct DashboardResponse {
+    since: String,
+    repos: Vec<RepoOut>,
+    series: Vec<SeriesPoint>,
+    models: Vec<ModelOut>,
+    trends: TrendsOut,
+}
+
+async fn dashboard(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ReposQuery>,
+) -> Result<Json<DashboardResponse>, (StatusCode, String)> {
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
+    let since = q.since.unwrap_or_else(|| "30d".to_string());
+    let cutoff = parse_since(&since)
+        .ok_or((StatusCode::BAD_REQUEST, "invalid `since` (use 24h|7d|30d|90d|all)".to_string()))?;
+
+    // 1) per-repo rollups
+    let repo_rows: Vec<RepoRow> = sqlx::query_as(
+        r#"
+        select repo,
+               count(*)::bigint                                   as sessions,
+               coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
+               coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
+               coalesce(sum(cache_read_input_tokens), 0)::bigint  as cache_read_tokens,
+               coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens,
+               max(ended_at)                                      as last_active
+        from token_logs
+        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+        group by repo order by last_active desc limit 500
+        "#,
+    )
+    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
+    let repos = repo_rows
+        .into_iter()
+        .map(|r| RepoOut {
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
+            estimated_cost_usd: cost_usd(r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens),
+            repo: r.repo, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens, last_active: r.last_active,
+        })
+        .collect();
+
+    // 2) account-wide daily series
+    let series_rows: Vec<SeriesRow> = sqlx::query_as(
+        r#"
+        select date_trunc('day', ended_at)::date                 as day,
+               count(*)::bigint                                   as sessions,
+               coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
+               coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
+               coalesce(sum(cache_read_input_tokens), 0)::bigint  as cache_read_tokens,
+               coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens
+        from token_logs
+        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+        group by day order by day asc
+        "#,
+    )
+    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
+    let series = series_rows
+        .into_iter()
+        .map(|r| SeriesPoint {
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
+            estimated_cost_usd: cost_usd(r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens),
+            day: r.day, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens,
+        })
+        .collect();
+
+    // 3) per-model rollups
+    let model_rows: Vec<ModelRow> = sqlx::query_as(
+        r#"
+        select coalesce(nullif(model, ''), 'unknown')            as model,
+               count(*)::bigint                                  as sessions,
+               coalesce(sum(input_tokens), 0)::bigint            as input_tokens,
+               coalesce(sum(output_tokens), 0)::bigint           as output_tokens,
+               coalesce(sum(cache_read_input_tokens), 0)::bigint as cache_read_tokens,
+               coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens
+        from token_logs
+        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+        group by 1
+        order by (coalesce(sum(input_tokens),0) + coalesce(sum(output_tokens),0)
+                + coalesce(sum(cache_read_input_tokens),0) + coalesce(sum(cache_creation_input_tokens),0)) desc
+        "#,
+    )
+    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
+    let models = model_rows
+        .into_iter()
+        .map(|r| ModelOut {
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
+            model: r.model, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens,
+        })
+        .collect();
+
+    // 4) trends (period-over-period + projection)
+    let dur = parse_window_duration(&since);
+    let now = Utc::now();
+    let epoch = DateTime::<Utc>::from_timestamp(0, 0).unwrap();
+    let cur_start = dur.map(|d| now - d).unwrap_or(epoch);
+    let prev_start = dur.map(|d| now - d * 2).unwrap_or(epoch);
+    let has_previous = dur.is_some();
+    let trow: TrendRow = sqlx::query_as(
+        r#"
+        with t as (
+            select ended_at, (input_tokens + output_tokens + cache_creation_input_tokens) as tok
+            from token_logs where user_id = $1
+        )
+        select
+          coalesce(sum(case when ended_at >= $2 then tok else 0 end), 0)::bigint                  as current_tokens,
+          coalesce(sum(case when ended_at >= $3 and ended_at < $2 then tok else 0 end), 0)::bigint as previous_tokens,
+          count(*) filter (where ended_at >= $2)::bigint                                           as current_sessions,
+          count(*) filter (where ended_at >= $3 and ended_at < $2)::bigint                         as previous_sessions
+        from t
+        "#,
+    )
+    .bind(user_id).bind(cur_start).bind(prev_start).fetch_one(&st.db).await.map_err(internal)?;
+    let delta_pct = if has_previous && trow.previous_tokens > 0 {
+        Some(((trow.current_tokens - trow.previous_tokens) as f64 / trow.previous_tokens as f64 * 1000.0).round() / 10.0)
+    } else {
+        None
+    };
+    let days = dur.map(|d| d.num_days().max(1)).unwrap_or(30);
+    let daily_avg = trow.current_tokens / days;
+    let trends = TrendsOut {
+        since: since.clone(),
+        current_tokens: trow.current_tokens,
+        previous_tokens: trow.previous_tokens,
+        has_previous,
+        delta_pct,
+        current_sessions: trow.current_sessions,
+        previous_sessions: trow.previous_sessions,
+        daily_avg_tokens: daily_avg,
+        projected_monthly_tokens: daily_avg * 30,
+    };
+
+    Ok(Json(DashboardResponse { since, repos, series, models, trends }))
 }
 
 // ---- GET /v1/export : CSV/JSON of the user's sessions (#29) -----------------
