@@ -5,6 +5,13 @@ on:
   push:
   pull_request:
 
+# gitleaks-action posts a summary comment on PRs; without pull-requests:write the
+# default read-only token 403s ("Resource not accessible by integration") and the
+# pull_request run fails even when no secret is found.
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   scan:
     runs-on: ubuntu-latest
