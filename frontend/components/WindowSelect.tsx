@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-const OPTIONS = ["24h", "7d", "30d", "90d", "all"] as const;
+const OPTIONS = ["1h", "5h", "12h", "24h", "7d", "30d", "90d", "all"] as const;
 
 // Segmented time-window control. Drives the `?since=` query param on the current
 // path so the selection is shareable + server-rendered.
