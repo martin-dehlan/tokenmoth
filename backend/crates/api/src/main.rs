@@ -366,7 +366,6 @@ async fn list_repos(
             RepoOut {
                 total_tokens: r.input_tokens
                     + r.output_tokens
-                    + r.cache_read_tokens
                     + r.cache_creation_tokens,
                 estimated_cost_usd: cost_usd(
                     r.input_tokens,
@@ -496,7 +495,6 @@ async fn repo_series(
         .map(|r| SeriesPoint {
             total_tokens: r.input_tokens
                 + r.output_tokens
-                + r.cache_read_tokens
                 + r.cache_creation_tokens,
             estimated_cost_usd: cost_usd(
                 r.input_tokens,
@@ -562,7 +560,6 @@ async fn account_series(
         .map(|r| SeriesPoint {
             total_tokens: r.input_tokens
                 + r.output_tokens
-                + r.cache_read_tokens
                 + r.cache_creation_tokens,
             estimated_cost_usd: cost_usd(
                 r.input_tokens,
@@ -755,7 +752,7 @@ async fn list_models(
     let out = rows
         .into_iter()
         .map(|r| ModelOut {
-            total_tokens: r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens,
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
             model: r.model,
             sessions: r.sessions,
             input_tokens: r.input_tokens,
@@ -808,7 +805,7 @@ async fn trends(
         r#"
         with t as (
             select ended_at,
-                   (input_tokens + output_tokens + cache_read_input_tokens + cache_creation_input_tokens) as tok
+                   (input_tokens + output_tokens + cache_creation_input_tokens) as tok
             from token_logs where user_id = $1
         )
         select
