@@ -5,6 +5,7 @@ import ModelBreakdown from "@/components/ModelBreakdown";
 import HookBreakdown from "@/components/HookBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
+import Landing from "@/components/Landing";
 import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,7 +23,12 @@ export default async function Dashboard({
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  const token = session?.access_token ?? "";
+
+  // Guests at the root get the marketing landing page; authenticated users get
+  // the dashboard. Middleware lets "/" through unauthenticated for exactly this.
+  if (!session) return <Landing />;
+
+  const token = session.access_token;
 
   const { repos, series, models, trends, apiCostUsd, overheadByHook, source, error } =
     await fetchDashboard(token, since);
