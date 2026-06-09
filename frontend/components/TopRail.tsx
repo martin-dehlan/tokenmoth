@@ -24,10 +24,8 @@ export default function TopRail({
       <div className="mx-auto max-w-5xl px-5 h-14 flex items-center justify-between gap-4">
         {/* left: logo pip + wordmark + workspace */}
         <Link href="/" className="flex items-center gap-2.5 shrink-0">
-          <span
-            className="block h-[9px] w-[9px] rounded-full bg-accent"
-            style={{ boxShadow: "0 0 0 3px rgba(26,127,100,0.18)" }}
-          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/moth.svg" alt="TokenMoth logo" width={22} height={22} className="block h-[22px] w-[22px] rounded-[6px]" />
           <span className="text-[15px] font-medium tracking-hero text-ink">TokenMoth</span>
           <span className="font-mono text-[12px] text-faint">/{workspace}</span>
         </Link>
