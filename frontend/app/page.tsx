@@ -95,12 +95,11 @@ export default async function Dashboard() {
             </div>
 
             {ranked.length === 0 ? (
-              <div className="text-[12px] text-faint py-8 text-center">
-                no circuits yet.{" "}
-                <Link href="/settings" className="text-accent underline">
-                  Get your key + install command →
-                </Link>{" "}
-                then finish a Claude Code session.
+              <div className="py-10 text-center flex flex-col items-center gap-3">
+                <div className="text-[13px] text-muted">No data yet — let&apos;s get you set up.</div>
+                <Link href="/onboarding" className="btn btn-accent">
+                  Get started →
+                </Link>
               </div>
             ) : (
               <div className="divide-y divide-hair">
