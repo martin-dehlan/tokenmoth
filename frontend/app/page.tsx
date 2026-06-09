@@ -1,9 +1,10 @@
 import Link from "next/link";
 import RepoList from "@/components/RepoList";
+import RoiBadge from "@/components/RoiBadge";
 import ModelBreakdown from "@/components/ModelBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import { fetchDashboard, fmtTokens, fmtUsd } from "@/lib/data";
+import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,7 @@ export default async function Dashboard({
               {/* floating annotations */}
               <ul className="flex flex-wrap gap-x-8 gap-y-2.5 lg:pb-2">
                 <Annotation label="API equiv." value={fmtUsd(apiCostUsd)} accent />
+                <RoiBadge apiCostUsd={apiCostUsd} since={since} />
                 <Annotation label="repos" value={`${repos.length}`} />
                 <Annotation label="avg / day" value={`${fmtTokens(avgPerDay)} tok`} />
                 <Annotation label="sessions" value={`${grandSessions}`} />
@@ -89,12 +91,12 @@ export default async function Dashboard({
               <AnnotatedChart
                 series={[
                   {
-                    name: "tokens / day",
+                    name: since.endsWith("h") ? (since === "1h" || since === "5h" ? "tokens / min" : "tokens / hr") : "tokens / day",
                     color: "#1a7f64",
                     values: series.map((p) => p.totalTokens),
                   },
                 ]}
-                xLabels={series.map((p) => p.day.slice(5))}
+                xLabels={series.map((p) => fmtChartLabel(p.day, since))}
                 format={fmtTokens}
               />
             ) : (

@@ -1,5 +1,6 @@
 import TopRail from "@/components/TopRail";
 import KeyManager from "@/components/KeyManager";
+import PlanSelect from "@/components/PlanSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,15 @@ export default function Settings() {
               off immediately.
             </p>
             <KeyManager />
+          </section>
+
+          <section className="px-8 pt-6 pb-7 border-t border-hair">
+            <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">your plan</h2>
+            <p className="text-[12px] text-muted mb-4">
+              Pick your subscription to see the ROI multiplier on the dashboard — how your usage
+              compares to API pay-as-you-go pricing. Stored in this browser only.
+            </p>
+            <PlanSelect />
           </section>
         </div>
         <footer className="pb-10 text-[11px] text-faint">

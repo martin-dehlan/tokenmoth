@@ -112,6 +112,28 @@ export function relativeTime(value: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+export function fmtChartLabel(dayStr: string, since: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dayStr)) {
+    return dayStr.slice(5);
+  }
+  const date = new Date(dayStr);
+  if (Number.isNaN(date.getTime())) {
+    return dayStr;
+  }
+  if (since === "1h" || since === "5h" || since === "12h") {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  if (since === "24h") {
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${mm}-${dd} ${time}`;
+  }
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  return `${mm}-${dd}`;
+}
+
 // ---- demo fallback --------------------------------------------------------
 
 const PRICE = { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 } as const;
@@ -142,7 +164,7 @@ export const DEMO_REPOS: RepoUsage[] = [
 // ---- per-repo daily series (GET /v1/repos/:name/series) -------------------
 
 export type SeriesPoint = {
-  day: string; // YYYY-MM-DD
+  day: string; // ISO 8601 or YYYY-MM-DD
   sessions: number;
   inputTokens: number;
   outputTokens: number;
@@ -397,12 +419,36 @@ export const INSTRUMENT_COLORS = ["#1a7f64", "#1a4f7f", "#9a6200", "#6b7280"] as
 function demoSeries(name: string, since: string, error: string): SeriesResult {
   const base = DEMO_REPOS.find((r) => r.repo === name);
   const seed = [...name].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const days = 12;
-  const dayMs = 86_400_000;
+  
+  let count = 12;
+  let stepMs = 86_400_000; // 1 day
+  if (since === "1h") {
+    count = 12;
+    stepMs = 5 * 60 * 1000; // 5 mins
+  } else if (since === "5h") {
+    count = 15;
+    stepMs = 20 * 60 * 1000; // 20 mins
+  } else if (since === "12h") {
+    count = 12;
+    stepMs = 60 * 60 * 1000; // 1 hour
+  } else if (since === "24h") {
+    count = 24;
+    stepMs = 60 * 60 * 1000; // 1 hour
+  } else if (since === "7d") {
+    count = 7;
+    stepMs = 24 * 60 * 60 * 1000;
+  } else if (since === "30d") {
+    count = 30;
+    stepMs = 24 * 60 * 60 * 1000;
+  } else if (since === "90d") {
+    count = 12;
+    stepMs = 7 * 24 * 60 * 60 * 1000; // 1 week
+  }
+
   const today = Date.now();
-  const points: SeriesPoint[] = Array.from({ length: days }, (_, i) => {
+  const points: SeriesPoint[] = Array.from({ length: count }, (_, i) => {
     const wobble = 0.4 + 0.6 * Math.abs(Math.sin(seed + i));
-    const scale = (base ? base.inputTokens / days : 80_000) * wobble;
+    const scale = (base ? base.inputTokens / count : 80_000) * wobble;
     const input = Math.round(scale);
     const output = Math.round(scale * 0.6);
     const cacheRead = Math.round(scale * 7);
@@ -417,7 +463,7 @@ function demoSeries(name: string, since: string, error: string): SeriesResult {
       lastActive: "",
     });
     return {
-      day: new Date(today - (days - 1 - i) * dayMs).toISOString().slice(0, 10),
+      day: new Date(today - (count - 1 - i) * stepMs).toISOString(),
       sessions: 1 + (i % 4),
       inputTokens: input,
       outputTokens: output,
