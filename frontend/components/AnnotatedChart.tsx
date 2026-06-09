@@ -23,7 +23,7 @@ export default function AnnotatedChart({
   const W = 1000;
   const H = height;
   const padL = 18;
-  const padR = 96; // room for end-of-line names
+  const padR = 120; // increased to give more room for end-of-line labels and prevent cropping
   const padT = 24;
   const padB = 14;
   const n = xLabels.length;
