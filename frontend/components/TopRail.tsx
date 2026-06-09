@@ -66,6 +66,11 @@ export default function TopRail({
           >
             <span className="text-[13px] text-muted leading-none">⚙</span>
           </Link>
+          <form action="/auth/signout" method="post">
+            <button type="submit" className="btn text-muted">
+              sign out
+            </button>
+          </form>
         </div>
       </div>
     </header>
