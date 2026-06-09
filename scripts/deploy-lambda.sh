@@ -36,6 +36,8 @@ print(json.dumps({"Variables": {
     "DATABASE_URL":            d["DATABASE_URL"],            # Supabase SESSION pooler :5432
     "SUPABASE_JWT_SECRET":     d["SUPABASE_JWT_SECRET"],
     "SUPABASE_URL":            "https://your-project-ref.supabase.co",  # for JWKS (ES256)
+    "POSTHOG_KEY":             d.get("POSTHOG_KEY", ""),     # optional: server-side analytics (#26)
+    "POSTHOG_HOST":            d.get("POSTHOG_HOST", "https://eu.i.posthog.com"),
     "TOKENMOTH_ADMIN_TOKEN":   d["TOKENMOTH_ADMIN_TOKEN"],
     "TOKENMOTH_BOOTSTRAP_KEY": "tm_user_123",
     "TOKENMOTH_RATE_PER_MIN":  "120",
