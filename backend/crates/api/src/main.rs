@@ -138,6 +138,7 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/repos/:name/series", get(repo_series))
         .route("/v1/series", get(account_series))
         .route("/v1/models", get(list_models))
+        .route("/v1/trends", get(trends))
         .route("/v1/export", get(export))
         .route("/v1/keys", get(list_keys).post(create_key))
         .route("/v1/keys/:id/revoke", post(revoke_key))
@@ -404,6 +405,23 @@ fn parse_since(label: &str) -> Option<Option<DateTime<Utc>>> {
         _ => return None,
     };
     Some(Some(Utc::now() - dur))
+}
+
+// Window length for period-over-period comparison; None for "all"/invalid.
+fn parse_window_duration(label: &str) -> Option<Duration> {
+    if label == "all" {
+        return None;
+    }
+    let (num, unit) = label.split_at(label.len().saturating_sub(1));
+    let n: i64 = num.parse().ok()?;
+    if n <= 0 {
+        return None;
+    }
+    match unit {
+        "h" => Some(Duration::hours(n)),
+        "d" => Some(Duration::days(n)),
+        _ => None,
+    }
 }
 
 // ---- GET /v1/repos/:name/series : daily time-series for one repo -----------
@@ -747,6 +765,90 @@ async fn list_models(
         })
         .collect();
     Ok(Json(out))
+}
+
+// ---- GET /v1/trends : period-over-period + projection (#28) -----------------
+
+#[derive(sqlx::FromRow)]
+struct TrendRow {
+    current_tokens: i64,
+    previous_tokens: i64,
+    current_sessions: i64,
+    previous_sessions: i64,
+}
+
+#[derive(Serialize)]
+struct TrendsOut {
+    since: String,
+    current_tokens: i64,
+    previous_tokens: i64,
+    has_previous: bool,
+    delta_pct: Option<f64>,
+    current_sessions: i64,
+    previous_sessions: i64,
+    daily_avg_tokens: i64,
+    projected_monthly_tokens: i64,
+}
+
+async fn trends(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ReposQuery>,
+) -> Result<Json<TrendsOut>, (StatusCode, String)> {
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
+    let since = q.since.unwrap_or_else(|| "30d".to_string());
+    let dur = parse_window_duration(&since);
+    let now = Utc::now();
+    let epoch = DateTime::<Utc>::from_timestamp(0, 0).unwrap();
+    let cur_start = dur.map(|d| now - d).unwrap_or(epoch);
+    let prev_start = dur.map(|d| now - d * 2).unwrap_or(epoch);
+    let has_previous = dur.is_some();
+
+    let row: TrendRow = sqlx::query_as(
+        r#"
+        with t as (
+            select ended_at,
+                   (input_tokens + output_tokens + cache_read_input_tokens + cache_creation_input_tokens) as tok
+            from token_logs where user_id = $1
+        )
+        select
+          coalesce(sum(case when ended_at >= $2 then tok else 0 end), 0)::bigint                       as current_tokens,
+          coalesce(sum(case when ended_at >= $3 and ended_at < $2 then tok else 0 end), 0)::bigint      as previous_tokens,
+          count(*) filter (where ended_at >= $2)::bigint                                                as current_sessions,
+          count(*) filter (where ended_at >= $3 and ended_at < $2)::bigint                              as previous_sessions
+        from t
+        "#,
+    )
+    .bind(user_id)
+    .bind(cur_start)
+    .bind(prev_start)
+    .fetch_one(&st.db)
+    .await
+    .map_err(internal)?;
+
+    let delta_pct = if has_previous && row.previous_tokens > 0 {
+        Some(
+            ((row.current_tokens - row.previous_tokens) as f64 / row.previous_tokens as f64 * 100.0
+                * 10.0)
+                .round()
+                / 10.0,
+        )
+    } else {
+        None
+    };
+    let days = dur.map(|d| d.num_days().max(1)).unwrap_or(30);
+    let daily_avg = row.current_tokens / days;
+    Ok(Json(TrendsOut {
+        since,
+        current_tokens: row.current_tokens,
+        previous_tokens: row.previous_tokens,
+        has_previous,
+        delta_pct,
+        current_sessions: row.current_sessions,
+        previous_sessions: row.previous_sessions,
+        daily_avg_tokens: daily_avg,
+        projected_monthly_tokens: daily_avg * 30,
+    }))
 }
 
 // ---- GET /v1/export : CSV/JSON of the user's sessions (#29) -----------------
