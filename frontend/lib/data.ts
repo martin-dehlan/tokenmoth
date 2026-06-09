@@ -120,15 +120,11 @@ export function fmtChartLabel(dayStr: string, since: string): string {
   if (Number.isNaN(date.getTime())) {
     return dayStr;
   }
-  if (since === "1h" || since === "5h" || since === "12h") {
+  // If the timeframe is in hours (e.g., "1h", "5h", "12h", "24h"), show only time.
+  if (/\dh$/.test(since)) {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   }
-  if (since === "24h") {
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
-    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    return `${mm}-${dd} ${time}`;
-  }
+  // For day-level ranges, show month-day.
   const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(date.getUTCDate()).padStart(2, '0');
   return `${mm}-${dd}`;
