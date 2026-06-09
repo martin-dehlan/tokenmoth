@@ -1,10 +1,14 @@
 name: release
 
-# Cut a release by pushing a tag, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
 # Builds the `tokenmoth` CLI for macOS + Linux (arm64/x64) and attaches tarballs.
+# MANUAL trigger only (Actions tab → Run workflow) — releases are normally built
+# locally (scripts) to avoid macOS Actions-minute cost on this private repo.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (must already exist)"
+        required: true
 
 permissions:
   contents: write
