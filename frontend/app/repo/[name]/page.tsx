@@ -1,7 +1,8 @@
 import Link from "next/link";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import { fetchRepoSeries, fmtTokens, fmtChartLabel } from "@/lib/data";
+import SessionList from "@/components/SessionList";
+import { fetchRepoSeries, fetchSessions, fmtTokens, fmtChartLabel } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -21,11 +22,10 @@ export default async function RepoDetail({
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  const { points, source, error } = await fetchRepoSeries(
-    session?.access_token ?? "",
-    name,
-    since,
-  );
+  const [{ points, source, error }, sessions] = await Promise.all([
+    fetchRepoSeries(session?.access_token ?? "", name, since),
+    fetchSessions(session?.access_token ?? "", since, name),
+  ]);
   const live = source === "live";
 
   const sum = points.reduce(
@@ -123,6 +123,14 @@ export default async function RepoDetail({
                 </div>
               ))}
             </div>
+          </section>
+
+          {/* SESSION HISTORY */}
+          <section className="px-8 pt-7 pb-7 border-t border-hair">
+            <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">
+              session history
+            </h2>
+            <SessionList sessions={sessions} />
           </section>
         </div>
 
