@@ -3,7 +3,7 @@ import RepoList from "@/components/RepoList";
 import ModelBreakdown from "@/components/ModelBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import { fetchRepos, fetchAccountSeries, fetchModels, fmtTokens } from "@/lib/data";
+import { fetchRepos, fetchAccountSeries, fetchModels, fetchTrends, fmtTokens } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +22,11 @@ export default async function Dashboard({
   } = await supabase.auth.getSession();
   const token = session?.access_token ?? "";
 
-  const [{ repos, source, error }, series, models] = await Promise.all([
+  const [{ repos, source, error }, series, models, trends] = await Promise.all([
     fetchRepos(token, since),
     fetchAccountSeries(token, since),
     fetchModels(token, since),
+    fetchTrends(token, since),
   ]);
   const live = source === "live";
 
@@ -68,6 +69,18 @@ export default async function Dashboard({
                 <Annotation label="avg / day" value={`${fmtTokens(avgPerDay)} tok`} />
                 <Annotation label="sessions" value={`${grandSessions}`} />
                 {ranked[0] && <Annotation label="busiest" value={ranked[0].repo} />}
+                {trends?.hasPrevious && trends.deltaPct !== null && (
+                  <Annotation
+                    label={`vs prev ${since}`}
+                    value={`${trends.deltaPct >= 0 ? "▲" : "▼"} ${Math.abs(trends.deltaPct)}%`}
+                  />
+                )}
+                {trends && trends.projectedMonthlyTokens > 0 && (
+                  <Annotation
+                    label="proj / mo"
+                    value={`${fmtTokens(trends.projectedMonthlyTokens)} tok`}
+                  />
+                )}
               </ul>
             </div>
           </section>

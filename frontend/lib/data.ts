@@ -275,6 +275,43 @@ export async function fetchModels(accessToken: string, since = "30d"): Promise<M
   }
 }
 
+// ---- trends (GET /v1/trends) ----------------------------------------------
+
+export type Trends = {
+  currentTokens: number;
+  previousTokens: number;
+  hasPrevious: boolean;
+  deltaPct: number | null;
+  dailyAvgTokens: number;
+  projectedMonthlyTokens: number;
+  currentSessions: number;
+  previousSessions: number;
+};
+
+export async function fetchTrends(accessToken: string, since = "30d"): Promise<Trends | null> {
+  if (!accessToken) return null;
+  try {
+    const res = await fetch(`${API_URL}/v1/trends?since=${encodeURIComponent(since)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return {
+      currentTokens: d.current_tokens,
+      previousTokens: d.previous_tokens,
+      hasPrevious: d.has_previous,
+      deltaPct: d.delta_pct,
+      dailyAvgTokens: d.daily_avg_tokens,
+      projectedMonthlyTokens: d.projected_monthly_tokens,
+      currentSessions: d.current_sessions,
+      previousSessions: d.previous_sessions,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Color per model family.
 export function modelColor(model: string): string {
   const m = model.toLowerCase();
