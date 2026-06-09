@@ -3,7 +3,7 @@ import RepoList from "@/components/RepoList";
 import ModelBreakdown from "@/components/ModelBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
-import { fetchDashboard, fmtTokens } from "@/lib/data";
+import { fetchDashboard, fmtTokens, fmtUsd } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export default async function Dashboard({
   } = await supabase.auth.getSession();
   const token = session?.access_token ?? "";
 
-  const { repos, series, models, trends, source, error } = await fetchDashboard(token, since);
+  const { repos, series, models, trends, apiCostUsd, source, error } = await fetchDashboard(token, since);
   const live = source === "live";
 
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
@@ -61,6 +61,7 @@ export default async function Dashboard({
 
               {/* floating annotations */}
               <ul className="flex flex-wrap gap-x-8 gap-y-2.5 lg:pb-2">
+                <Annotation label="API equiv." value={fmtUsd(apiCostUsd)} accent />
                 <Annotation label="repos" value={`${repos.length}`} />
                 <Annotation label="avg / day" value={`${fmtTokens(avgPerDay)} tok`} />
                 <Annotation label="sessions" value={`${grandSessions}`} />
@@ -152,12 +153,26 @@ export default async function Dashboard({
   );
 }
 
-function Annotation({ label, value }: { label: string; value: string }) {
+function Annotation({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
   return (
     <li className="flex items-baseline gap-2">
-      <span className="h-1 w-1 rounded-full bg-line-strong shrink-0 translate-y-[-2px]" />
+      <span
+        className={`h-1 w-1 rounded-full shrink-0 translate-y-[-2px] ${accent ? "bg-accent" : "bg-line-strong"}`}
+      />
       <span className="text-[11px] text-muted">{label}</span>
-      <span className="text-[13px] text-ink tabular-nums font-mono">{value}</span>
+      <span
+        className={`tabular-nums font-mono ${accent ? "text-[14px] text-accent font-medium" : "text-[13px] text-ink"}`}
+      >
+        {value}
+      </span>
     </li>
   );
 }
