@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import posthog from "posthog-js";
 
+const PH = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const API_URL = process.env.NEXT_PUBLIC_TOKENMOTH_API_URL ?? "http://localhost:8080";
 const INSTALL = "curl -fsSL https://tokenmoth-dist.s3.eu-central-1.amazonaws.com/install.sh | sh";
 
@@ -26,6 +28,7 @@ export default function OnboardingFlow() {
       const d = await r.json();
       setKey(d.key);
       setPhase("ready");
+      if (PH) posthog.capture("onboarding_key_created");
     } else {
       setErr(`${r.status}: ${await r.text()}`);
       setPhase("have-key");
@@ -65,6 +68,7 @@ export default function OnboardingFlow() {
     try {
       await navigator.clipboard.writeText(cmd);
       setCopied(true);
+      if (PH) posthog.capture("onboarding_install_copied");
       setTimeout(() => setCopied(false), 1600);
     } catch {
       /* clipboard unavailable */
