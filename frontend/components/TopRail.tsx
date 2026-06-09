@@ -7,7 +7,6 @@ type Nav = { key: string; label: string; href: string };
 const NAV: Nav[] = [
   { key: "usage", label: "usage", href: "/#hero" },
   { key: "models", label: "repos", href: "/#instruments" },
-  { key: "sessions", label: "sessions", href: "/sessions" },
 ];
 
 // Single-line top rail: logo pip + wordmark + workspace, flat nav, date chip + settings.

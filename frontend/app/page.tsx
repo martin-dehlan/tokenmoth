@@ -2,6 +2,7 @@ import Link from "next/link";
 import RepoList from "@/components/RepoList";
 import RoiBadge from "@/components/RoiBadge";
 import ModelBreakdown from "@/components/ModelBreakdown";
+import HookBreakdown from "@/components/HookBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel } from "@/lib/data";
@@ -23,7 +24,8 @@ export default async function Dashboard({
   } = await supabase.auth.getSession();
   const token = session?.access_token ?? "";
 
-  const { repos, series, models, trends, apiCostUsd, source, error } = await fetchDashboard(token, since);
+  const { repos, series, models, trends, apiCostUsd, overheadByHook, source, error } =
+    await fetchDashboard(token, since);
   const live = source === "live";
 
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
@@ -118,6 +120,21 @@ export default async function Dashboard({
             <section className="px-8 pt-7 pb-7 border-t border-hair">
               <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">by model</h2>
               <ModelBreakdown models={models} />
+            </section>
+          )}
+
+          {/* HOOK / PLUGIN OVERHEAD */}
+          {overheadByHook.length > 0 && (
+            <section className="px-8 pt-7 pb-7 border-t border-hair">
+              <div className="flex items-baseline justify-between mb-4">
+                <h2 className="text-[10px] uppercase tracking-label text-muted">
+                  overhead by plugin / hook
+                </h2>
+                <span className="text-[10px] tracking-label text-faint">
+                  est. injected context · what to disable
+                </span>
+              </div>
+              <HookBreakdown hooks={overheadByHook} />
             </section>
           )}
 
