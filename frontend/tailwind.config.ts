@@ -20,6 +20,11 @@ const config: Config = {
         },
         warn: "#9a6200", // amber
         info: "#1a4f7f", // navy
+        copper: {
+          DEFAULT: "#cf6a1f", // moth-body copper — logo only
+          soft: "rgba(207,106,31,0.10)",
+        },
+        stone: "#e6e5e2", // landing desk — neutral warm-grey, white cards float on it
       },
       fontFamily: {
         sans: [
