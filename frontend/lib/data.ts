@@ -321,6 +321,7 @@ export type DashboardData = {
   series: SeriesPoint[];
   models: ModelUsage[];
   trends: Trends | null;
+  apiCostUsd: number; // API pay-as-you-go equivalent for the window (#72)
   source: "live" | "demo";
   error?: string;
 };
@@ -331,6 +332,7 @@ function demoDashboard(since: string, error: string): DashboardData {
     series: demoSeries("all repos", since, error).points,
     models: [],
     trends: null,
+    apiCostUsd: DEMO_REPOS.reduce((a, r) => a + r.costUsd, 0),
     source: "demo",
     error,
   };
@@ -370,6 +372,7 @@ export async function fetchDashboard(accessToken: string, since = "30d"): Promis
             previousSessions: t.previous_sessions,
           }
         : null,
+      apiCostUsd: typeof d.api_cost_usd === "number" ? d.api_cost_usd : 0,
       source: "live",
     };
   } catch (e) {
