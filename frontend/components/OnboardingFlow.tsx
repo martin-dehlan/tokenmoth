@@ -19,18 +19,20 @@ export default function OnboardingFlow() {
   const createKey = useCallback(async () => {
     setPhase("creating");
     setErr(null);
-    const r = await fetch("/api/keys", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ label: "onboarding" }),
-    });
-    if (r.ok) {
+    try {
+      const r = await fetch("/api/keys", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "onboarding" }),
+      });
+      if (!r.ok) throw new Error(String(r.status));
       const d = await r.json();
       setKey(d.key);
       setPhase("ready");
       if (PH) posthog.capture("onboarding_key_created");
-    } else {
-      setErr(`${r.status}: ${await r.text()}`);
+    } catch {
+      // Friendly, actionable — never surface a raw status/stack.
+      setErr("Couldn't reach the server. Check your connection and try again.");
       setPhase("have-key");
     }
   }, []);
@@ -38,11 +40,16 @@ export default function OnboardingFlow() {
   // On arrival: auto-generate a key if the user has none; else offer a button.
   useEffect(() => {
     (async () => {
-      const r = await fetch("/api/keys", { cache: "no-store" });
-      const keys = r.ok ? await r.json() : [];
-      const active = Array.isArray(keys) && keys.some((k: { active: boolean }) => k.active);
-      if (active) setPhase("have-key");
-      else createKey();
+      try {
+        const r = await fetch("/api/keys", { cache: "no-store" });
+        const keys = r.ok ? await r.json() : [];
+        const active = Array.isArray(keys) && keys.some((k: { active: boolean }) => k.active);
+        if (active) setPhase("have-key");
+        else createKey();
+      } catch {
+        setErr("Couldn't reach the server. Check your connection and try again.");
+        setPhase("have-key");
+      }
     })();
   }, [createKey]);
 
@@ -50,13 +57,17 @@ export default function OnboardingFlow() {
   useEffect(() => {
     if (phase !== "ready") return;
     const id = setInterval(async () => {
-      const r = await fetch("/api/repos?since=all", { cache: "no-store" });
-      if (r.ok) {
-        const d = await r.json();
-        if (Array.isArray(d.repos) && d.repos.length > 0) {
-          setPhase("received");
-          clearInterval(id);
+      try {
+        const r = await fetch("/api/repos?since=all", { cache: "no-store" });
+        if (r.ok) {
+          const d = await r.json();
+          if (Array.isArray(d.repos) && d.repos.length > 0) {
+            setPhase("received");
+            clearInterval(id);
+          }
         }
+      } catch {
+        /* transient — keep polling */
       }
     }, 4000);
     return () => clearInterval(id);
@@ -79,30 +90,48 @@ export default function OnboardingFlow() {
     <div className="flex flex-col gap-6">
       {/* step 1 */}
       <div>
-        <div className="text-[10px] uppercase tracking-label text-muted mb-2">
+        <div className="text-[10px] uppercase tracking-label text-muted mb-2.5">
           1 · install &amp; connect — run in your terminal
         </div>
 
-        {phase === "have-key" ? (
-          <button className="btn btn-accent" onClick={createKey}>
-            Generate my install command
+        {phase === "creating" || phase === "init" ? (
+          <div className="font-mono text-[12px] text-faint">preparing your key…</div>
+        ) : phase === "have-key" ? (
+          <button
+            className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:bg-[#33373d] active:translate-y-px"
+            onClick={createKey}
+          >
+            {err ? "Try again" : "Generate my install command"}
           </button>
-        ) : phase === "creating" || phase === "init" ? (
-          <div className="text-[12px] text-faint">preparing your key…</div>
         ) : (
           <>
-            <pre className="font-mono text-[12px] text-ink whitespace-pre-wrap break-all border border-line rounded-btn p-3 shadow-btn bg-surface m-0">
-              {`$ ${cmd.replace("\n", "\n$ ")}`}
+            <pre className="font-mono text-[12px] leading-[1.7] text-ink whitespace-pre-wrap break-all border border-line rounded-btn bg-canvas px-4 py-3 m-0 shadow-track">
+              {cmd.split("\n").map((line, i) => (
+                <span key={i} className="block">
+                  <span className="text-faint select-none">$ </span>
+                  {line}
+                </span>
+              ))}
             </pre>
-            <button className="btn btn-accent mt-2" onClick={copy}>
-              {copied ? "copied ✓" : "copy command"}
-            </button>
-            <span className="text-[10px] text-faint ml-3">
-              your transcripts stay local — only token counts are sent
-            </span>
+            <div className="mt-3 flex items-center gap-4 flex-wrap">
+              <button
+                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:bg-[#33373d] active:translate-y-px"
+                onClick={copy}
+              >
+                {copied ? "copied ✓" : "copy command"}
+              </button>
+              <span className="text-[10px] text-faint">
+                your transcripts stay local — only token counts are sent
+              </span>
+            </div>
           </>
         )}
-        {err && <p className="mt-2 text-[11px] text-warn">{err}</p>}
+
+        {err && (
+          <p className="mt-3 text-[11px] text-warn" role="alert">
+            {err}
+          </p>
+        )}
       </div>
 
       {/* step 2 — live status */}
@@ -118,8 +147,11 @@ export default function OnboardingFlow() {
             </div>
           ) : (
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-[13px] text-accent">✓ first session received!</span>
-              <Link href="/" className="btn btn-accent">
+              <span className="text-[13px] text-ink">✓ first session received!</span>
+              <Link
+                href="/"
+                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:bg-[#33373d] active:translate-y-px"
+              >
                 Go to dashboard →
               </Link>
             </div>
