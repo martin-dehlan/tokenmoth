@@ -2,7 +2,6 @@ import Link from "next/link";
 import RepoList from "@/components/RepoList";
 import RoiBadge from "@/components/RoiBadge";
 import ModelBreakdown from "@/components/ModelBreakdown";
-import HookBreakdown from "@/components/HookBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import Landing from "@/components/Landing";
@@ -30,7 +29,7 @@ export default async function Dashboard({
 
   const token = session.access_token;
 
-  const { repos, series, models, trends, apiCostUsd, overheadByHook, source, error } =
+  const { repos, series, models, trends, apiCostUsd, source, error } =
     await fetchDashboard(token, since);
   const live = source === "live";
 
@@ -81,7 +80,7 @@ export default async function Dashboard({
                 <Annotation
                   label="overhead"
                   value={`~${overheadPct}%`}
-                  title="estimated tokens from SessionStart hooks (plugins, MCP context injections)"
+                  title="estimated plugin/hook context injected per session — open a session for the per-plugin breakdown"
                 />
                 {ranked[0] && <Annotation label="busiest" value={ranked[0].repo} />}
                 {trends?.hasPrevious && trends.deltaPct !== null && (
@@ -126,21 +125,6 @@ export default async function Dashboard({
             <section className="px-8 pt-7 pb-7 border-t border-hair">
               <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">by model</h2>
               <ModelBreakdown models={models} />
-            </section>
-          )}
-
-          {/* HOOK / PLUGIN OVERHEAD */}
-          {overheadByHook.length > 0 && (
-            <section className="px-8 pt-7 pb-7 border-t border-hair">
-              <div className="flex items-baseline justify-between mb-4">
-                <h2 className="text-[10px] uppercase tracking-label text-muted">
-                  overhead by plugin / hook
-                </h2>
-                <span className="text-[10px] tracking-label text-faint">
-                  est. injected context · what to disable
-                </span>
-              </div>
-              <HookBreakdown hooks={overheadByHook} />
             </section>
           )}
 

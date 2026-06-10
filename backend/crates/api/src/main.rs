@@ -151,6 +151,7 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/series", get(account_series))
         .route("/v1/dashboard", get(dashboard))
         .route("/v1/sessions", get(list_sessions))
+        .route("/v1/session/:id", get(get_session))
         .route("/v1/models", get(list_models))
         .route("/v1/trends", get(trends))
         .route("/v1/export", get(export))
@@ -1220,6 +1221,43 @@ async fn list_sessions(
         })
         .collect();
     Ok(Json(out))
+}
+
+// ---- GET /v1/session/:id : one session + its plugin overhead breakdown (#102) -
+
+async fn get_session(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<SessionOut>, (StatusCode, String)> {
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
+
+    let row: Option<SessionRow> = sqlx::query_as(
+        r#"
+        select session_id, repo, model,
+               input_tokens, output_tokens,
+               cache_creation_input_tokens as cache_creation_tokens,
+               hook_overhead_tokens, hook_overhead_breakdown, ended_at
+        from token_logs
+        where user_id = $1 and session_id = $2
+        "#,
+    )
+    .bind(user_id)
+    .bind(&id)
+    .fetch_optional(&st.db)
+    .await
+    .map_err(internal)?;
+
+    let r = row.ok_or((StatusCode::NOT_FOUND, "session not found".to_string()))?;
+    Ok(Json(SessionOut {
+        total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
+        session_id: r.session_id,
+        repo: r.repo,
+        model: r.model,
+        hook_overhead_tokens: r.hook_overhead_tokens,
+        hook_overhead_breakdown: r.hook_overhead_breakdown.0,
+        ended_at: r.ended_at,
+    }))
 }
 
 // ---- GET /v1/export : CSV/JSON of the user's sessions (#29) -----------------

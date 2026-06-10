@@ -16,7 +16,7 @@ use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const DEFAULT_API: &str = "https://api.tokenmoth.dev";
 
@@ -248,8 +248,9 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
         .and_then(|tp| std::fs::read_to_string(tp).ok())
         .unwrap_or_default();
     // Aggregation semantics: SUM every message's usage across the session = total
-    // tokens processed (incl. repeated cache reads). `model` = last seen.
-    let p = parse_transcript(&content);
+    // tokens processed (incl. repeated cache reads). `model` = last seen. The
+    // resolver attributes hook overhead to the owning plugin (scans local configs).
+    let p = parse_transcript(&content, &PluginResolver::load());
 
     let repo = git_repo_name(&cwd).unwrap_or_else(|| repo_from_path(&cwd));
     let body = telemetry_body(&session_id, &repo, &p);
@@ -304,7 +305,7 @@ struct Parsed {
 /// overhead from `attachment` entries that carry a `hookEvent` + injected
 /// `content` (SessionStart plugins, MCP context, PreToolUse hooks, …), attributed
 /// per `hookName`. Token estimate ≈ content length / 4.
-fn parse_transcript(content: &str) -> Parsed {
+fn parse_transcript(content: &str, resolver: &PluginResolver) -> Parsed {
     let mut p = Parsed::default();
     for line in content.lines() {
         let v: Value = match serde_json::from_str(line) {
@@ -334,7 +335,12 @@ fn parse_transcript(content: &str) -> Parsed {
                         // breakdown reads "inject-claude-md ~12k" instead of lumping
                         // every plugin under "SessionStart:startup".
                         let command = a.get("command").and_then(|x| x.as_str()).unwrap_or("");
-                        let label = hook_label(ev, a.get("hookName").and_then(|x| x.as_str()), command);
+                        let hook_name = a.get("hookName").and_then(|x| x.as_str());
+                        // Prefer the owning plugin's name; fall back to script/hook label.
+                        let label = resolver
+                            .resolve(command)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| hook_label(ev, hook_name, command));
                         *p.breakdown.entry(label).or_insert(0) += tok;
                     }
                 }
@@ -348,21 +354,118 @@ fn as_i64(u: &Value, k: &str) -> i64 {
     u.get(k).and_then(|x| x.as_i64()).unwrap_or(0)
 }
 
-/// Human label for a hook's overhead bucket. Prefer the hook script's basename
-/// stem (e.g. `inject-claude-md`, `pretooluse-skill-inject`) so the breakdown
-/// attributes tokens to the specific plugin hook; fall back to the hook name /
-/// event when the command runs no script. PRIVACY: only the basename stem is
-/// returned — never the full path, `${CLAUDE_PLUGIN_ROOT}`, or any content.
-fn hook_label(hook_event: &str, hook_name: Option<&str>, command: &str) -> String {
+/// Basename stem of the first script-looking token in a hook command, e.g.
+/// `node "${CLAUDE_PLUGIN_ROOT}/hooks/inject-claude-md.mjs"` → `inject-claude-md`.
+/// PRIVACY: only the stem is returned — never the path or `${CLAUDE_PLUGIN_ROOT}`.
+fn script_stem(command: &str) -> Option<String> {
     for tok in command.split(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
         let base = tok.rsplit('/').next().unwrap_or(tok);
         if let Some((stem, ext)) = base.rsplit_once('.') {
             if matches!(ext, "mjs" | "cjs" | "js" | "ts" | "sh" | "py") && !stem.is_empty() {
-                return stem.to_string();
+                return Some(stem.to_string());
             }
         }
     }
+    None
+}
+
+/// Human label for a hook's overhead bucket when its plugin can't be resolved.
+/// Prefer the hook script's basename stem; fall back to the hook name / event
+/// when the command runs no script. PRIVACY: only the basename stem is returned —
+/// never the full path, `${CLAUDE_PLUGIN_ROOT}`, or any content.
+fn hook_label(hook_event: &str, hook_name: Option<&str>, command: &str) -> String {
+    if let Some(stem) = script_stem(command) {
+        return stem;
+    }
     hook_name.filter(|s| !s.is_empty()).unwrap_or(hook_event).to_string()
+}
+
+/// Maps a transcript hook `command` to the plugin that declared it, by scanning
+/// the locally-installed plugin configs at SessionEnd. Claude Code records either
+/// the hook's `command` or (when set) its `statusMessage` in the transcript — so
+/// both strings are indexed, plus the script basename stem as a fallback. Lets the
+/// overhead breakdown read `caveman` / `vercel` instead of raw `SessionStart:clear`.
+/// PRIVACY: only plugin *names* are ever produced — never paths or content.
+#[derive(Default)]
+struct PluginResolver {
+    by_command: HashMap<String, String>,
+    by_script: HashMap<String, String>,
+}
+
+impl PluginResolver {
+    /// Scan `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` for hook
+    /// declarations (`.claude-plugin/plugin.json`, `hooks/hooks.json`). Best-effort:
+    /// an empty resolver (→ today's labels) if the dir is absent or unreadable.
+    fn load() -> Self {
+        let mut r = Self::default();
+        let Some(home) = dirs::home_dir() else { return r };
+        let base = std::env::var_os("CLAUDE_CONFIG_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".claude"))
+            .join("plugins/cache");
+        for mp in read_subdirs(&base) {
+            for plugin_dir in read_subdirs(&mp) {
+                let Some(plugin) = plugin_dir.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                let plugin = plugin.to_string();
+                for ver in read_subdirs(&plugin_dir) {
+                    for cfg in [
+                        ver.join(".claude-plugin/plugin.json"),
+                        ver.join("hooks/hooks.json"),
+                    ] {
+                        if let Ok(txt) = std::fs::read_to_string(&cfg) {
+                            if let Ok(v) = serde_json::from_str::<Value>(&txt) {
+                                r.index(&plugin, &v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        r
+    }
+
+    /// Walk a plugin config, registering every `{command, statusMessage?}` hook
+    /// declaration under `plugin`. First writer wins (stable across duplicates).
+    fn index(&mut self, plugin: &str, v: &Value) {
+        match v {
+            Value::Object(map) => {
+                if let Some(cmd) = map.get("command").and_then(|c| c.as_str()) {
+                    self.by_command.entry(cmd.to_string()).or_insert_with(|| plugin.to_string());
+                    if let Some(stem) = script_stem(cmd) {
+                        self.by_script.entry(stem).or_insert_with(|| plugin.to_string());
+                    }
+                }
+                if let Some(msg) = map.get("statusMessage").and_then(|c| c.as_str()) {
+                    self.by_command.entry(msg.to_string()).or_insert_with(|| plugin.to_string());
+                }
+                map.values().for_each(|val| self.index(plugin, val));
+            }
+            Value::Array(arr) => arr.iter().for_each(|val| self.index(plugin, val)),
+            _ => {}
+        }
+    }
+
+    /// Plugin owning a transcript hook `command`, if known.
+    fn resolve(&self, command: &str) -> Option<&str> {
+        if let Some(p) = self.by_command.get(command) {
+            return Some(p);
+        }
+        let stem = script_stem(command)?;
+        self.by_script.get(&stem).map(String::as_str)
+    }
+}
+
+/// Immediate subdirectories of `dir` (empty on any I/O error).
+fn read_subdirs(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect()
 }
 
 /// Byte length of a hook's injected content. Claude Code truncates large hook
@@ -422,7 +525,7 @@ mod tests {
             // attachment without a hookEvent must be ignored
             r#"{"type":"attachment","attachment":{"type":"file","content":"ignored padding here"}}"#,
         );
-        let p = parse_transcript(t);
+        let p = parse_transcript(t, &PluginResolver::default());
         assert_eq!((p.input, p.output, p.cread, p.ccreate), (150, 280, 15, 3));
         assert_eq!(p.overhead, 2);
         assert_eq!(p.breakdown.get("caveman"), Some(&2));
@@ -431,7 +534,7 @@ mod tests {
 
     #[test]
     fn parse_transcript_ignores_garbage_lines() {
-        let p = parse_transcript("not json\n{}\n");
+        let p = parse_transcript("not json\n{}\n", &PluginResolver::default());
         assert_eq!((p.input, p.output, p.cread, p.ccreate, p.overhead), (0, 0, 0, 0, 0));
         assert!(p.breakdown.is_empty());
         assert_eq!(p.model, None);
@@ -527,6 +630,34 @@ mod tests {
         );
         // empty command + no hook name → event
         assert_eq!(hook_label("PreToolUse", None, ""), "PreToolUse");
+    }
+
+    #[test]
+    fn plugin_resolver_maps_command_and_status_message() {
+        // Mimics a plugin config: a script hook + a free-text hook with a
+        // statusMessage (Claude Code records the statusMessage, not the command).
+        let cfg = json!({
+            "hooks": {
+                "SessionStart": [{
+                    "hooks": [
+                        { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/inject-claude-md.mjs\"" },
+                        { "type": "command", "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/activate.js",
+                          "statusMessage": "Loading caveman mode..." }
+                    ]
+                }]
+            }
+        });
+        let mut r = PluginResolver::default();
+        r.index("caveman", &cfg);
+
+        // exact command match
+        assert_eq!(r.resolve("node \"${CLAUDE_PLUGIN_ROOT}/hooks/inject-claude-md.mjs\""), Some("caveman"));
+        // statusMessage (free-text) is what the transcript carries for that hook
+        assert_eq!(r.resolve("Loading caveman mode..."), Some("caveman"));
+        // script-stem fallback when the command differs but the script matches
+        assert_eq!(r.resolve("/abs/path/hooks/inject-claude-md.mjs --flag"), Some("caveman"));
+        // unknown → None (caller falls back to hook_label)
+        assert_eq!(r.resolve("PreToolUse:Bash"), None);
     }
 
     #[test]
