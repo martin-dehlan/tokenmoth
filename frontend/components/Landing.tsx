@@ -1,22 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import posthog from "posthog-js";
 import MothLogo from "@/components/MothLogo";
+import OsSelect from "@/components/OsSelect";
+import { detectOs, installLines, osNote, type Os } from "@/lib/install";
 import { createClient } from "@/lib/supabase/client";
 
 const PH = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
-// Teaser shown to guests — the real key is filled in on /onboarding post-auth.
-const PREVIEW = [
-  "curl -fsSL https://tokenmoth-dist.s3.eu-central-1.amazonaws.com/install.sh | sh",
-  "tokenmoth setup --key ••••••••••••••••",
-];
+// Teaser key line shown to guests — the real key is filled in on /onboarding.
+const SETUP_TEASER = "tokenmoth setup --key ••••••••••••••••";
 
 export default function Landing() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [os, setOs] = useState<Os>("macos");
+
+  // Guess the visitor's OS after mount (keeps SSR output stable).
+  useEffect(() => {
+    const guess = detectOs();
+    if (guess) setOs(guess);
+  }, []);
+
+  const preview = [...installLines(os), SETUP_TEASER];
+  const note = osNote(os);
 
   // Click 1: sign in. After OAuth we land on /onboarding, which generates the
   // key and shows the copy-ready command (clicks 2 + 3 happen there).
@@ -68,15 +77,19 @@ export default function Landing() {
           </section>
 
           <section className="px-8 pt-6 pb-8 border-t border-hair">
-            <div className="text-[10px] uppercase tracking-label text-muted mb-2.5">install</div>
+            <div className="flex items-center justify-between gap-3 mb-2.5">
+              <div className="text-[10px] uppercase tracking-label text-muted">install</div>
+              <OsSelect current={os} onSelect={setOs} />
+            </div>
             <pre className="font-mono text-[12px] leading-[1.7] text-ink whitespace-pre-wrap break-all border border-line rounded-btn bg-canvas px-4 py-3 m-0 shadow-track">
-              {PREVIEW.map((line, i) => (
+              {preview.map((line, i) => (
                 <span key={i} className="block">
                   <span className="text-faint select-none">$ </span>
                   {line}
                 </span>
               ))}
             </pre>
+            {note && <p className="mt-2 text-[10px] text-faint leading-relaxed">{note}</p>}
 
             <div className="mt-6 flex items-center gap-4 flex-wrap">
               <button
