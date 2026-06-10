@@ -56,8 +56,8 @@ export default function LegalShell({
             <MothLogo className="h-[22px] w-auto text-ink shrink-0" />
             <span className="text-[15px] font-medium tracking-hero text-ink">TokenMoth</span>
           </Link>
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
+          <div className="flex items-center gap-4">
+            <ThemeToggle variant="icon" />
             <div className="seg">
               {locales.map((l) => (
                 <Link

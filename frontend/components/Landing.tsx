@@ -66,8 +66,8 @@ export default function Landing() {
             <span className="text-[15px] font-medium tracking-hero text-ink">TokenMoth</span>
             <span className="font-mono text-[12px] text-faint">/personal</span>
           </div>
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
+          <div className="flex items-center gap-4">
+            <ThemeToggle variant="icon" />
             <Link href="/login" className="text-[13px] text-muted hover:text-ink transition-colors">
               sign in
             </Link>

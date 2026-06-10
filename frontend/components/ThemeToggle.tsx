@@ -6,9 +6,15 @@ import { useEffect, useState } from "react";
 // layout (no FOUC); this reads it back on mount, then flips + persists. Renders
 // a stable placeholder until mounted to avoid a hydration mismatch.
 //
-// `variant`: "button" (TopRail — icon-only .btn) or "text" (footer — inline link
-// with a label, matching the surrounding footer links).
-export default function ThemeToggle({ variant = "button" }: { variant?: "button" | "text" }) {
+// `variant`:
+//   "button" — TopRail: icon in a .btn, matching the neighbouring ⚙ / sign-out.
+//   "icon"   — marketing/legal headers: bare ghost glyph, color-only hover, so it
+//              sits as light as the adjacent text links.
+export default function ThemeToggle({
+  variant = "button",
+}: {
+  variant?: "button" | "icon";
+}) {
   const [dark, setDark] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -30,15 +36,17 @@ export default function ThemeToggle({ variant = "button" }: { variant?: "button"
   // Placeholder glyph until mounted keeps SSR + first client paint identical.
   const glyph = dark === null ? "◐" : dark ? "☀" : "☾";
 
-  if (variant === "text") {
+  if (variant === "icon") {
+    // Bare glyph — no border/bg/shadow — so it reads as light as a text link.
     return (
       <button
         type="button"
         onClick={toggle}
         aria-label={label}
-        className="text-muted hover:text-ink transition-colors"
+        title={dark ? "light theme" : "dark theme"}
+        className="inline-flex items-center justify-center text-[15px] leading-none text-muted hover:text-ink transition-colors"
       >
-        {glyph} {dark === null ? "theme" : dark ? "light" : "dark"}
+        {glyph}
       </button>
     );
   }
