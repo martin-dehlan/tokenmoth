@@ -1,17 +1,26 @@
 name: release
 
-# Builds the `tokenmoth` CLI for macOS + Linux (arm64/x64) and attaches tarballs.
-# MANUAL trigger only (Actions tab → Run workflow) — releases are normally built
-# locally (scripts) to avoid macOS Actions-minute cost on this private repo.
+# Reproducible CLI build + publish to the public S3 distribution bucket.
+# MANUAL trigger (Actions tab → Run workflow): pass an existing git tag; the
+# build checks out that immutable tag and publishes tokenmoth-<target>.tar.gz
+# to s3://tokenmoth-dist/ via OIDC (no long-lived AWS keys).
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (must already exist)"
+        description: "Git tag to build + publish (must already exist, e.g. cli-v0.1.1)"
         required: true
 
+# id-token: write is required for AWS OIDC role assumption.
 permissions:
-  contents: write
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: eu-central-1
+  S3_BUCKET: tokenmoth-dist
+  # OIDC role scoped to s3:PutObject on tokenmoth-dist/tokenmoth-*.tar.gz for this repo.
+  ROLE_ARN: arn:aws:iam::551504153648:role/tokenmoth-ci-s3-publish
 
 jobs:
   build:
@@ -31,6 +40,8 @@ jobs:
             os: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -53,7 +64,14 @@ jobs:
           bin="backend/target/${{ matrix.target }}/release/tokenmoth"
           tar -czf "tokenmoth-${{ matrix.target }}.tar.gz" -C "$(dirname "$bin")" tokenmoth
 
-      - name: Attach to release
-        uses: softprops/action-gh-release@v2
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          files: tokenmoth-${{ matrix.target }}.tar.gz
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Publish to S3
+        run: |
+          aws s3 cp "tokenmoth-${{ matrix.target }}.tar.gz" \
+            "s3://${{ env.S3_BUCKET }}/tokenmoth-${{ matrix.target }}.tar.gz" \
+            --region "${{ env.AWS_REGION }}"
