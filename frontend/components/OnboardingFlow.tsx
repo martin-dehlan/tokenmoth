@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import posthog from "posthog-js";
+import OsSelect from "@/components/OsSelect";
+import { detectOs, installLines, osNote, type Os } from "@/lib/install";
 
 const PH = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const API_URL = process.env.NEXT_PUBLIC_TOKENMOTH_API_URL ?? "http://localhost:8080";
-const INSTALL = "curl -fsSL https://tokenmoth-dist.s3.eu-central-1.amazonaws.com/install.sh | sh";
 
 type Phase = "init" | "have-key" | "creating" | "ready" | "received";
 
@@ -15,6 +16,13 @@ export default function OnboardingFlow() {
   const [phase, setPhase] = useState<Phase>("init");
   const [copied, setCopied] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [os, setOs] = useState<Os>("macos");
+
+  // Guess the visitor's OS after mount (keeps SSR output stable).
+  useEffect(() => {
+    const guess = detectOs();
+    if (guess) setOs(guess);
+  }, []);
 
   const createKey = useCallback(async () => {
     setPhase("creating");
@@ -73,7 +81,10 @@ export default function OnboardingFlow() {
     return () => clearInterval(id);
   }, [phase]);
 
-  const cmd = key ? `${INSTALL}\ntokenmoth setup --key ${key} --api-url ${API_URL}` : "";
+  const cmd = key
+    ? [...installLines(os), `tokenmoth setup --key ${key} --api-url ${API_URL}`].join("\n")
+    : "";
+  const note = osNote(os);
 
   async function copy() {
     try {
@@ -105,6 +116,9 @@ export default function OnboardingFlow() {
           </button>
         ) : (
           <>
+            <div className="flex items-center justify-end mb-2.5">
+              <OsSelect current={os} onSelect={setOs} />
+            </div>
             <pre className="font-mono text-[12px] leading-[1.7] text-ink whitespace-pre-wrap break-all border border-line rounded-btn bg-canvas px-4 py-3 m-0 shadow-track">
               {cmd.split("\n").map((line, i) => (
                 <span key={i} className="block">
@@ -113,6 +127,7 @@ export default function OnboardingFlow() {
                 </span>
               ))}
             </pre>
+            {note && <p className="mt-2 text-[10px] text-faint leading-relaxed">{note}</p>}
             <div className="mt-3 flex items-center gap-4 flex-wrap">
               <button
                 className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:bg-[#33373d] active:translate-y-px"
