@@ -1,6 +1,6 @@
 // Per-OS install commands + browser OS detection for the install blocks.
-// macOS and Linux share the curl|sh path. Windows has no native build yet
-// (release.yml ships darwin + linux only), so we point Windows users at WSL.
+// macOS and Linux share the curl|sh path; Windows has a native PowerShell
+// installer (irm|iex → tokenmoth.exe). WSL counts as Linux (detected as such).
 
 export type Os = "macos" | "linux" | "windows";
 
@@ -10,22 +10,20 @@ export const OS_OPTIONS: { id: Os; label: string }[] = [
   { id: "windows", label: "Windows" },
 ];
 
-const CURL = "curl -fsSL https://tokenmoth-dist.s3.eu-central-1.amazonaws.com/install.sh | sh";
+const BASE = "https://tokenmoth-dist.s3.eu-central-1.amazonaws.com";
+const CURL = `curl -fsSL ${BASE}/install.sh | sh`;
+const PWSH = `irm ${BASE}/install.ps1 | iex`;
 
-// The install line(s) for an OS. Windows runs the same installer inside WSL —
-// there's no native Windows binary, so the segment carries a short WSL note.
+// The install line(s) for an OS. Windows uses the native PowerShell installer;
+// macOS/Linux share the curl|sh path.
 export function installLines(os: Os): string[] {
-  if (os === "windows") {
-    // Inside a WSL (Ubuntu) shell — same installer as Linux.
-    return [CURL];
-  }
-  return [CURL];
+  return os === "windows" ? [PWSH] : [CURL];
 }
 
-// Short caption shown under the Windows segment; null for macOS/Linux.
+// Short caption shown under a segment; null when nothing extra is needed.
 export function osNote(os: Os): string | null {
   if (os === "windows") {
-    return "No native Windows build yet — run this inside WSL (wsl --install, then an Ubuntu shell).";
+    return "Run in PowerShell. (On WSL, pick Linux instead.)";
   }
   return null;
 }
