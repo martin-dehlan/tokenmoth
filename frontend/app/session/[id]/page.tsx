@@ -91,10 +91,39 @@ export default async function SessionDetail({ params }: { params: { id: string }
               </div>
             )}
           </section>
+
+          {/* MCP SERVERS — names only; per-server token cost isn't separable (#106) */}
+          {s.mcpServers.length > 0 && (
+            <section className="px-8 pt-7 pb-7 border-t border-hair">
+              <div className="flex items-baseline justify-between mb-4">
+                <h2 className="text-[10px] uppercase tracking-label text-muted">
+                  MCP servers active
+                </h2>
+                <span className="text-[10px] tracking-label text-faint">
+                  {s.mcpServers.length} loaded
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {s.mcpServers.map((m) => (
+                  <span
+                    key={m}
+                    className="text-[11px] font-mono text-muted border border-hair rounded-btn px-2 py-1"
+                  >
+                    {m}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-3 text-[10px] text-faint leading-relaxed max-w-prose">
+                Per-server token cost isn&apos;t separately measurable — MCP tool schemas are
+                injected into the request, not the transcript. That cost is already counted in
+                this session&apos;s totals above.
+              </p>
+            </section>
+          )}
         </div>
 
         <footer className="pb-10 text-[11px] text-faint">
-          overhead is an estimate from injected context · MCP servers not yet measured
+          overhead is an estimate from injected context
         </footer>
       </main>
     </>

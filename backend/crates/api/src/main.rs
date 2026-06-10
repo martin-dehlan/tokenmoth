@@ -86,6 +86,9 @@ struct Telemetry {
     /// original timeline instead of collapsing everything to now() (#102 backfill).
     #[serde(default)]
     ended_at: Option<DateTime<Utc>>,
+    /// MCP server names active for the session's project — names only (#106).
+    #[serde(default)]
+    mcp_servers: Vec<String>,
 }
 
 fn init_tracing() {
@@ -257,8 +260,8 @@ async fn ingest(
         insert into token_logs
           (user_id, session_id, repo, project_path, input_tokens, output_tokens,
            cache_read_input_tokens, cache_creation_input_tokens, model, hook_overhead_tokens,
-           hook_overhead_breakdown, ended_at)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, coalesce($12, now()))
+           hook_overhead_breakdown, ended_at, mcp_servers)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, coalesce($12, now()), $13)
         on conflict (session_id) do update set
            input_tokens                = excluded.input_tokens,
            output_tokens               = excluded.output_tokens,
@@ -268,6 +271,7 @@ async fn ingest(
            hook_overhead_breakdown      = excluded.hook_overhead_breakdown,
            repo                         = excluded.repo,
            model                        = excluded.model,
+           mcp_servers                  = excluded.mcp_servers,
            -- live reports ($12 NULL) → now() (unchanged); backfill keeps real end time
            ended_at                     = coalesce($12, now())
         "#,
@@ -290,6 +294,7 @@ async fn ingest(
         },
     ))
     .bind(t.ended_at)
+    .bind(sqlx::types::Json(&t.mcp_servers))
     .execute(&st.db)
     .await
     .map_err(internal)?;
@@ -1163,6 +1168,7 @@ struct SessionRow {
     cache_creation_tokens: i64,
     hook_overhead_tokens: i64,
     hook_overhead_breakdown: sqlx::types::Json<HashMap<String, i64>>,
+    mcp_servers: sqlx::types::Json<Vec<String>>,
     ended_at: DateTime<Utc>,
 }
 
@@ -1174,6 +1180,8 @@ struct SessionOut {
     total_tokens: i64,
     hook_overhead_tokens: i64,
     hook_overhead_breakdown: HashMap<String, i64>,
+    /// MCP server names active for the session's project (#106).
+    mcp_servers: Vec<String>,
     ended_at: DateTime<Utc>,
 }
 
@@ -1199,7 +1207,7 @@ async fn list_sessions(
         select session_id, repo, model,
                input_tokens, output_tokens,
                cache_creation_input_tokens as cache_creation_tokens,
-               hook_overhead_tokens, hook_overhead_breakdown, ended_at
+               hook_overhead_tokens, hook_overhead_breakdown, mcp_servers, ended_at
         from token_logs
         where user_id = $1
           and ($2::timestamptz is null or ended_at >= $2)
@@ -1224,6 +1232,7 @@ async fn list_sessions(
             model: r.model,
             hook_overhead_tokens: r.hook_overhead_tokens,
             hook_overhead_breakdown: r.hook_overhead_breakdown.0,
+            mcp_servers: r.mcp_servers.0,
             ended_at: r.ended_at,
         })
         .collect();
@@ -1244,7 +1253,7 @@ async fn get_session(
         select session_id, repo, model,
                input_tokens, output_tokens,
                cache_creation_input_tokens as cache_creation_tokens,
-               hook_overhead_tokens, hook_overhead_breakdown, ended_at
+               hook_overhead_tokens, hook_overhead_breakdown, mcp_servers, ended_at
         from token_logs
         where user_id = $1 and session_id = $2
         "#,
@@ -1263,6 +1272,7 @@ async fn get_session(
         model: r.model,
         hook_overhead_tokens: r.hook_overhead_tokens,
         hook_overhead_breakdown: r.hook_overhead_breakdown.0,
+        mcp_servers: r.mcp_servers.0,
         ended_at: r.ended_at,
     }))
 }
