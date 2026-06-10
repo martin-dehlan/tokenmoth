@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import PostHogProvider from "@/components/PostHogProvider";
+import ConsentBanner from "@/components/ConsentBanner";
+import Footer from "@/components/Footer";
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -14,11 +16,22 @@ export const metadata: Metadata = {
   description: "Track, aggregate and visualize Claude Code token usage & cost per repo.",
 };
 
+// Set the theme class before first paint to avoid a flash: honor a saved
+// choice, else fall back to the OS preference. Mirrors ThemeToggle's storage key.
+const themeInit = `(function(){try{var t=localStorage.getItem('theme');var d=t?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches;if(d)document.documentElement.classList.add('dark');}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={jetbrainsMono.variable}>
-      <body className="font-sans bg-canvas text-ink antialiased">
-        <PostHogProvider>{children}</PostHogProvider>
+    <html lang="en" className={jetbrainsMono.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInit }} />
+      </head>
+      <body className="font-sans bg-canvas text-ink antialiased min-h-screen flex flex-col">
+        <PostHogProvider>
+          <div className="flex-1 flex flex-col">{children}</div>
+          <Footer />
+          <ConsentBanner />
+        </PostHogProvider>
       </body>
     </html>
   );

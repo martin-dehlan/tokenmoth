@@ -2,29 +2,32 @@ import type { Config } from "tailwindcss";
 
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  darkMode: "class",
   theme: {
     extend: {
+      // Every color flows through a CSS variable (see globals.css) so the same
+      // utility classes flip between light and `.dark` themes.
       colors: {
-        canvas: "#fbfbfa", // warm off-white notebook canvas
-        surface: "#ffffff",
-        ink: "#1f2328", // near-black text
-        muted: "#6b7280",
-        faint: "#9ca3af",
-        line: "#d1d5db", // control borders
-        "line-strong": "#c4c9d0", // solid bottom-edge shadow color
-        hair: "#ececee", // very faint section dividers
+        canvas: "var(--canvas)",
+        surface: "var(--surface)",
+        ink: "var(--ink)",
+        muted: "var(--muted)",
+        faint: "var(--faint)",
+        line: "var(--line)",
+        "line-strong": "var(--line-strong)",
+        hair: "var(--hair)",
         accent: {
-          DEFAULT: "#1a7f64", // deep teal — used sparingly
-          faint: "rgba(26,127,100,0.06)",
-          ring: "rgba(26,127,100,0.18)",
+          DEFAULT: "var(--accent)",
+          faint: "var(--accent-faint)",
+          ring: "var(--accent-ring)",
         },
-        warn: "#9a6200", // amber
-        info: "#1a4f7f", // navy
+        warn: "var(--warn)",
+        info: "var(--info)",
         copper: {
-          DEFAULT: "#cf6a1f", // moth-body copper — logo only
-          soft: "rgba(207,106,31,0.10)",
+          DEFAULT: "var(--copper)",
+          soft: "var(--copper-soft)",
         },
-        stone: "#e6e5e2", // landing desk — neutral warm-grey, white cards float on it
+        stone: "var(--stone)",
       },
       fontFamily: {
         sans: [
@@ -47,9 +50,9 @@ const config: Config = {
         surface: "12px",
       },
       boxShadow: {
-        btn: "0 1px 0 0 #c4c9d0, 0 1px 3px 0 rgba(0,0,0,0.07)",
-        surface: "0 1px 0 0 #c4c9d0, 0 3px 12px rgba(0,0,0,0.07)",
-        track: "inset 0 1px 3px rgba(0,0,0,0.07)",
+        btn: "0 1px 0 0 var(--line-strong), 0 1px 3px 0 var(--shadow)",
+        surface: "0 1px 0 0 var(--line-strong), 0 3px 12px var(--shadow)",
+        track: "inset 0 1px 3px var(--shadow)",
       },
     },
   },

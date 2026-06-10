@@ -7,6 +7,7 @@ import MothLogo from "@/components/MothLogo";
 import OsSelect from "@/components/OsSelect";
 import { detectOs, installLines, osNote, type Os } from "@/lib/install";
 import { createClient } from "@/lib/supabase/client";
+import { readConsent } from "@/lib/consent";
 
 const PH = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
@@ -32,7 +33,7 @@ export default function Landing() {
   async function getKey() {
     setBusy(true);
     setErr(null);
-    if (PH) posthog.capture("landing_get_key_clicked");
+    if (PH && readConsent() === "granted") posthog.capture("landing_get_key_clicked");
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -45,7 +46,7 @@ export default function Landing() {
   }
 
   return (
-    <div className="h-screen overflow-hidden flex flex-col bg-stone">
+    <div className="flex-1 min-h-0 flex flex-col bg-stone">
       {/* top rail — same language as the dashboard TopRail */}
       <header className="shrink-0 border-b border-line">
         <div className="mx-auto max-w-4xl px-6 h-14 flex items-center justify-between gap-4">
@@ -95,7 +96,7 @@ export default function Landing() {
               <button
                 onClick={getKey}
                 disabled={busy}
-                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:bg-[#33373d] active:translate-y-px disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-opacity hover:opacity-90 active:translate-y-px disabled:opacity-60"
               >
                 {busy ? "redirecting…" : "Get your key"}
                 <span aria-hidden>→</span>

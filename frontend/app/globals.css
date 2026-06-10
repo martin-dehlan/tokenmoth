@@ -2,14 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Theme tokens. Light is the default; `.dark` on <html> flips them. Every
+   surface/text/border color flows through these so both themes share one set
+   of component rules. */
 :root {
   color-scheme: light;
+  --canvas: #fbfbfa; /* warm off-white notebook canvas */
+  --surface: #ffffff;
+  --ink: #1f2328; /* near-black text */
+  --muted: #6b7280;
+  --faint: #9ca3af;
+  --line: #d1d5db; /* control borders */
+  --line-strong: #c4c9d0; /* solid bottom-edge shadow color */
+  --line-soft: #e5e7eb; /* seg/table inner borders */
+  --hair: #ececee; /* very faint section dividers */
+  --raise: #f3f4f6; /* hover / active fill */
+  --accent: #1a7f64; /* deep teal — used sparingly */
+  --accent-hover: #166e57;
+  --accent-fg: #ffffff;
+  --accent-faint: rgba(26, 127, 100, 0.06);
+  --accent-ring: rgba(26, 127, 100, 0.18);
+  --warn: #9a6200; /* amber */
+  --info: #1a4f7f; /* navy */
+  --copper: #cf6a1f; /* moth-body copper */
+  --copper-soft: rgba(207, 106, 31, 0.1);
+  --stone: #e6e5e2; /* landing desk */
+  --shadow: rgba(0, 0, 0, 0.07);
+}
+
+.dark {
+  color-scheme: dark;
+  --canvas: #15171b;
+  --surface: #1d2024;
+  --ink: #e7e8ea;
+  --muted: #9aa0a8;
+  --faint: #6b7280;
+  --line: #34383e;
+  --line-strong: #3c414a;
+  --line-soft: #2e3238;
+  --hair: #282c31;
+  --raise: #282c31;
+  --accent: #34a888; /* brighter teal for contrast on dark */
+  --accent-hover: #3cb897;
+  --accent-fg: #0c0e10;
+  --accent-faint: rgba(52, 168, 136, 0.1);
+  --accent-ring: rgba(52, 168, 136, 0.28);
+  --warn: #d49a3a;
+  --info: #6aa3da;
+  --copper: #d9803a;
+  --copper-soft: rgba(217, 128, 58, 0.14);
+  --stone: #1a1c20;
+  --shadow: rgba(0, 0, 0, 0.45);
 }
 
 html,
 body {
-  background: #fbfbfa;
-  color: #1f2328;
+  background: var(--canvas);
+  color: var(--ink);
 }
 
 @layer components {
@@ -18,55 +67,55 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
+    background: var(--surface);
+    border: 1px solid var(--line);
     border-radius: 7px;
     font-size: 12px;
     line-height: 1;
     padding: 5px 11px;
-    color: #1f2328;
-    box-shadow: 0 1px 0 0 #c4c9d0, 0 1px 3px 0 rgba(0, 0, 0, 0.07);
+    color: var(--ink);
+    box-shadow: 0 1px 0 0 var(--line-strong), 0 1px 3px 0 var(--shadow);
     transition: all 80ms;
     cursor: pointer;
     white-space: nowrap;
   }
   .btn:hover {
-    background: #f3f4f6;
+    background: var(--raise);
   }
   .btn:active {
     transform: translateY(1px);
     box-shadow: none;
   }
   .btn-accent {
-    background: #1a7f64;
-    border-color: #1a7f64;
-    color: #ffffff;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
   }
   .btn-accent:hover {
-    background: #166e57;
+    background: var(--accent-hover);
   }
 
   /* Segmented control group: shared outer shadow, items split by border-right. */
   .seg {
     display: inline-flex;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
+    background: var(--surface);
+    border: 1px solid var(--line);
     border-radius: 7px;
-    box-shadow: 0 1px 0 0 #c4c9d0, 0 1px 3px 0 rgba(0, 0, 0, 0.07);
+    box-shadow: 0 1px 0 0 var(--line-strong), 0 1px 3px 0 var(--shadow);
     overflow: hidden;
   }
   .seg > * {
     padding: 5px 11px;
     font-size: 12px;
     line-height: 1;
-    border-right: 1px solid #e5e7eb;
+    border-right: 1px solid var(--line-soft);
     transition: all 80ms;
   }
   .seg > *:last-child {
     border-right: none;
   }
   .seg > [data-active="true"] {
-    background: #f3f4f6;
+    background: var(--raise);
     font-weight: 500;
   }
 
@@ -83,14 +132,64 @@ body {
     letter-spacing: 0.02em;
   }
 
+  /* Legal pages — readable long-form text inside the surface. */
+  .legal-prose h2 {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    margin-top: 28px;
+    margin-bottom: 8px;
+  }
+  .legal-prose h2:first-child {
+    margin-top: 0;
+  }
+  .legal-prose h3 {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink);
+    margin-top: 18px;
+    margin-bottom: 6px;
+  }
+  .legal-prose p {
+    margin-bottom: 12px;
+  }
+  .legal-prose ul {
+    list-style: disc;
+    padding-left: 20px;
+    margin-bottom: 12px;
+  }
+  .legal-prose li {
+    margin-bottom: 5px;
+  }
+  .legal-prose a {
+    text-decoration: underline;
+  }
+  .legal-prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 14px;
+    font-size: 12px;
+  }
+  .legal-prose th,
+  .legal-prose td {
+    border: 1px solid var(--line-soft);
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+  .legal-prose th {
+    background: var(--raise);
+    font-weight: 500;
+  }
+
   /* Gauge / budget track — asymmetric radius + inset depth. */
   .track {
     height: 8px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--line);
     border-radius: 3px 6px 6px 3px;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.07);
+    box-shadow: inset 0 1px 3px var(--shadow);
     overflow: hidden;
-    background: #ffffff;
+    background: var(--surface);
   }
   .track > i {
     display: block;
