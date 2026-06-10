@@ -1,0 +1,2 @@
+# Never publish a stale downloaded binary — postinstall fetches it fresh.
+vendor/

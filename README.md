@@ -79,15 +79,41 @@ psql "$DATABASE_URL" -f seed.sql   # creates dev key tm_user_123
 
 ## CLI — install the hook
 
-**Prebuilt (no Rust toolchain)** — public installer (binaries hosted on S3; repo stays private):
+All paths ship the same prebuilt `tokenmoth` binary — **no Rust toolchain, no
+compile** (repo stays private; only the release artifacts are public). Pick one:
+
+**npm** (every Claude Code user already has Node — lowest friction):
 
 ```bash
-curl -fsSL https://tokenmoth-dist.s3.eu-central-1.amazonaws.com/install.sh | sh
+npx tokenmoth setup --key <your-key>     # one-off, no install
+npm install -g tokenmoth                  # or install globally
+```
+
+**Homebrew** (macOS + Linux):
+
+```bash
+brew install martin-dehlan/tokenmoth/tokenmoth
+```
+
+**curl / PowerShell** (no Node, no Homebrew):
+
+```bash
+curl -fsSL https://get.tokenmoth.com/install.sh | sh          # macOS / Linux
+irm  https://get.tokenmoth.com/install.ps1 | iex              # Windows (PowerShell)
+```
+
+Then register the hook:
+
+```bash
 tokenmoth setup --key <your-key> --api-url https://api.tokenmoth.com
 ```
 
-Downloads the right binary for your OS/arch (macOS + Linux, arm64/x64) into `~/.local/bin`.
-Binaries are built locally and uploaded to the public S3 bucket (`scripts/install-release.sh`).
+Installers download the right binary for your OS/arch (macOS + Linux arm64/x64,
+Windows x64) from the branded dist host (`get.tokenmoth.com`, CloudFront → S3;
+see [#124](https://github.com/martin-dehlan/tokenmoth/issues/124)), with the raw
+S3 bucket as a transitional fallback. Build + publish: `.github/workflows/release.yml`.
+npm wrapper lives in [`npm/`](./npm); Homebrew formula in
+[`dist/homebrew/`](./dist/homebrew).
 
 **From source:**
 

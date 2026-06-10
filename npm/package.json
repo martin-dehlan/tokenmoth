@@ -1,0 +1,44 @@
+{
+  "name": "tokenmoth",
+  "version": "0.1.1",
+  "description": "Track, aggregate and visualize Claude Code token usage & cost — per Git repo. Zero-setup CLI that installs a Claude Code hook.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "tokens",
+    "usage",
+    "cost",
+    "cli"
+  ],
+  "homepage": "https://tokenmoth.com",
+  "bugs": "https://github.com/martin-dehlan/tokenmoth/issues",
+  "license": "MIT",
+  "author": "Martin Dehlan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/martin-dehlan/tokenmoth.git",
+    "directory": "npm"
+  },
+  "bin": {
+    "tokenmoth": "bin/cli.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin/cli.js",
+    "install.js"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
