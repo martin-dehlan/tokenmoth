@@ -81,6 +81,11 @@ struct Telemetry {
     hook_overhead_tokens: i64,
     #[serde(default)]
     hook_overhead_breakdown: serde_json::Value,
+    /// Optional real session end time. Live reports omit it (server stamps now());
+    /// `tokenmoth backfill` sends it so re-ingesting old sessions keeps the
+    /// original timeline instead of collapsing everything to now() (#102 backfill).
+    #[serde(default)]
+    ended_at: Option<DateTime<Utc>>,
 }
 
 fn init_tracing() {
@@ -252,8 +257,8 @@ async fn ingest(
         insert into token_logs
           (user_id, session_id, repo, project_path, input_tokens, output_tokens,
            cache_read_input_tokens, cache_creation_input_tokens, model, hook_overhead_tokens,
-           hook_overhead_breakdown)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           hook_overhead_breakdown, ended_at)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, coalesce($12, now()))
         on conflict (session_id) do update set
            input_tokens                = excluded.input_tokens,
            output_tokens               = excluded.output_tokens,
@@ -263,7 +268,8 @@ async fn ingest(
            hook_overhead_breakdown      = excluded.hook_overhead_breakdown,
            repo                         = excluded.repo,
            model                        = excluded.model,
-           ended_at                     = now()
+           -- live reports ($12 NULL) → now() (unchanged); backfill keeps real end time
+           ended_at                     = coalesce($12, now())
         "#,
     )
     .bind(user_id)
@@ -283,6 +289,7 @@ async fn ingest(
             t.hook_overhead_breakdown.clone()
         },
     ))
+    .bind(t.ended_at)
     .execute(&st.db)
     .await
     .map_err(internal)?;
