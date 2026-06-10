@@ -19,7 +19,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
     return (
       <>
         <TopRail active="usage" since="30d" />
-        <main className="mx-auto max-w-5xl px-5">
+        <main className="mx-auto max-w-7xl px-5">
           <div className="my-7 rounded-surface border border-line bg-surface shadow-surface px-8 py-12 text-center">
             <div className="text-[13px] text-muted mb-3">session not found</div>
             <Link href="/" className="btn text-muted">
@@ -42,7 +42,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
     <>
       <TopRail active="usage" since="30d" />
 
-      <main className="mx-auto max-w-5xl px-5">
+      <main className="mx-auto max-w-7xl px-5">
         <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
           {/* HERO */}
           <section className="px-8 pt-8 pb-7">
