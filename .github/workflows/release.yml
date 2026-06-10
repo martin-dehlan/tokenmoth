@@ -38,6 +38,8 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,10 +61,15 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --release -p tokenmoth-cli --target ${{ matrix.target }}
 
+      # bash on every runner (Git Bash on Windows) so the tar/.exe handling is
+      # uniform. Windows builds carry a `.exe`; the archive name convention
+      # (tokenmoth-<target>.tar.gz, binary `tokenmoth[.exe]` inside) is unchanged.
       - name: Package
+        shell: bash
         run: |
-          bin="backend/target/${{ matrix.target }}/release/tokenmoth"
-          tar -czf "tokenmoth-${{ matrix.target }}.tar.gz" -C "$(dirname "$bin")" tokenmoth
+          ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
+          bin="backend/target/${{ matrix.target }}/release/tokenmoth${ext}"
+          tar -czf "tokenmoth-${{ matrix.target }}.tar.gz" -C "$(dirname "$bin")" "tokenmoth${ext}"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -71,6 +78,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Publish to S3
+        shell: bash
         run: |
           aws s3 cp "tokenmoth-${{ matrix.target }}.tar.gz" \
             "s3://${{ env.S3_BUCKET }}/tokenmoth-${{ matrix.target }}.tar.gz" \
