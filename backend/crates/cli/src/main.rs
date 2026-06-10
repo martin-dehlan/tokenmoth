@@ -61,6 +61,18 @@ enum Cmd {
         #[arg(long)]
         detach: bool,
     },
+    /// One-time: re-ingest every local transcript so historical sessions gain the
+    /// plugin overhead breakdown. Idempotent (upserts by session id) and preserves
+    /// each session's real end time. Safe to re-run.
+    Backfill {
+        #[arg(long)]
+        key: String,
+        #[arg(long, default_value = DEFAULT_API)]
+        api_url: String,
+        /// Parse + report what would be sent without POSTing.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn main() {
@@ -69,6 +81,7 @@ fn main() {
         Cmd::Setup { key, api_url, local } => cmd_setup(key, api_url, *local),
         Cmd::Uninstall { local } => cmd_uninstall(*local),
         Cmd::Report { key, api_url, detach } => cmd_report(key, api_url, *detach),
+        Cmd::Backfill { key, api_url, dry_run } => cmd_backfill(key, api_url, *dry_run),
     };
     if let Err(e) = r {
         // A hook must never break the user's session — log to stderr and exit 0.
@@ -253,18 +266,135 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
     let p = parse_transcript(&content, &PluginResolver::load());
 
     let repo = git_repo_name(&cwd).unwrap_or_else(|| repo_from_path(&cwd));
-    let body = telemetry_body(&session_id, &repo, &p);
+    // Live report: no ended_at → the server stamps now() (current behavior).
+    let body = telemetry_body(&session_id, &repo, &p, None);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()?;
     // Fire-and-forget: a failed POST must never surface to the user's session.
-    let _ = client
+    let _ = post_telemetry(&client, api_url, key, &body);
+    Ok(())
+}
+
+/// POST a telemetry body to `/v1/telemetry`. Returns Ok(true) on a 2xx.
+fn post_telemetry(
+    client: &reqwest::blocking::Client,
+    api_url: &str,
+    key: &str,
+    body: &Value,
+) -> anyhow::Result<bool> {
+    let res = client
         .post(format!("{}/v1/telemetry", api_url.trim_end_matches('/')))
         .bearer_auth(key)
-        .json(&body)
-        .send();
+        .json(body)
+        .send()?;
+    Ok(res.status().is_success())
+}
+
+/// One-time backfill: re-ingest every local transcript so historical sessions
+/// gain the plugin overhead breakdown. Idempotent — the API upserts by session
+/// id — and each session keeps its real end time (sent as `ended_at`), so the
+/// timeline is preserved. Per-file failures are counted, never fatal.
+fn cmd_backfill(key: &str, api_url: &str, dry_run: bool) -> anyhow::Result<()> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve home dir"))?;
+    let base = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".claude"))
+        .join("projects");
+
+    let mut transcripts = Vec::new();
+    collect_jsonl(&base, &mut transcripts);
+    transcripts.sort();
+    if transcripts.is_empty() {
+        println!("no transcripts found under {}", base.display());
+        return Ok(());
+    }
+    println!(
+        "found {} transcript(s) under {}{}",
+        transcripts.len(),
+        base.display(),
+        if dry_run { " — dry run, nothing will be sent" } else { "" }
+    );
+
+    let resolver = PluginResolver::load();
+
+    // A session can span several .jsonl files (sidechains, post-compaction
+    // continuations). They share one `sessionId` and all upsert the SAME row, so
+    // keep only the richest parse per session (most total tokens) — that's the
+    // main transcript the live SessionEnd hook would have used. Without this, a
+    // 0-token fragment posted last would clobber the real row.
+    let mut best: HashMap<String, Backfilled> = HashMap::new();
+    let mut skipped = 0u32;
+    for path in &transcripts {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            skipped += 1;
+            continue;
+        };
+        let p = parse_transcript(&content, &resolver);
+        let Some(session_id) = p.session_id.clone() else {
+            skipped += 1; // no session id → can't upsert the right row
+            continue;
+        };
+        let cwd = p.cwd.clone().unwrap_or_else(|| ".".to_string());
+        let repo = git_repo_name(&cwd).unwrap_or_else(|| repo_from_path(&cwd));
+        let score = p.input + p.output + p.cread + p.ccreate + p.overhead;
+        let body = telemetry_body(&session_id, &repo, &p, p.last_ts.as_deref());
+        let entry = Backfilled { repo, score, body };
+        match best.get(&session_id) {
+            Some(prev) if prev.score >= score => {}
+            _ => { best.insert(session_id, entry); }
+        }
+    }
+
+    let sessions: Vec<Backfilled> = best.into_values().collect();
+    println!("{} unique session(s) to backfill ({} file(s) skipped: no session id / unreadable)",
+        sessions.len(), skipped);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+    let total = sessions.len();
+    let (mut sent, mut failed) = (0u32, 0u32);
+    for (i, s) in sessions.iter().enumerate() {
+        if dry_run {
+            println!("  [{}/{}] {} overhead~{} {}", i + 1, total, s.repo,
+                s.body["hook_overhead_tokens"], s.body["hook_overhead_breakdown"]);
+            sent += 1;
+            continue;
+        }
+        match post_telemetry(&client, api_url, key, &s.body) {
+            Ok(true) => sent += 1,
+            Ok(false) | Err(_) => failed += 1,
+        }
+        // Gentle pace to stay under the API's per-minute rate limit.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if (i + 1) % 25 == 0 {
+            println!("  …{}/{total} (sent {sent}, failed {failed})", i + 1);
+        }
+    }
+    println!("✓ backfill done — sent {sent}, failed {failed}, skipped {skipped}");
     Ok(())
+}
+
+/// One deduped session ready to (re-)ingest.
+struct Backfilled {
+    repo: String,
+    score: i64,
+    body: Value,
+}
+
+/// Recursively collect `*.jsonl` files under `dir` (empty on I/O error).
+fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            collect_jsonl(&p, out);
+        } else if p.extension().and_then(|x| x.to_str()) == Some("jsonl") {
+            out.push(p);
+        }
+    }
 }
 
 /// Build the telemetry payload. PRIVACY INVARIANT: this is the ONLY data that
@@ -272,8 +402,10 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
 /// per-hook *names* + counts. Never the absolute path, the transcript, or any
 /// hook/chat content (a stray `.env` pasted into a session must never escape).
 /// Keep this whitelist tight; `telemetry_body_only_whitelisted_fields` enforces it.
-fn telemetry_body(session_id: &str, repo: &str, p: &Parsed) -> Value {
-    json!({
+/// `ended_at` (a timestamp, no content) is included only for backfill, so a
+/// re-ingest preserves the session's real end time instead of `now()`.
+fn telemetry_body(session_id: &str, repo: &str, p: &Parsed, ended_at: Option<&str>) -> Value {
+    let mut body = json!({
         "session_id": session_id,
         // basename only — never the absolute cwd (no username / dir structure leak)
         "project_path": repo,
@@ -285,7 +417,11 @@ fn telemetry_body(session_id: &str, repo: &str, p: &Parsed) -> Value {
         "cache_creation_input_tokens": p.ccreate,
         "hook_overhead_tokens": p.overhead,
         "hook_overhead_breakdown": p.breakdown,
-    })
+    });
+    if let Some(ts) = ended_at {
+        body["ended_at"] = json!(ts);
+    }
+    body
 }
 
 /// Aggregated transcript stats.
@@ -299,6 +435,15 @@ struct Parsed {
     /// Per-hook overhead tokens, keyed by `hookName` (#83).
     breakdown: HashMap<String, i64>,
     model: Option<String>,
+    /// Session id from the transcript (`sessionId`) — used by `backfill` to
+    /// upsert the right row. Empty on a live report (id comes from the hook).
+    session_id: Option<String>,
+    /// Working dir from the transcript (`cwd`) — used by `backfill` to derive the
+    /// repo name. Empty on a live report (cwd comes from the hook).
+    cwd: Option<String>,
+    /// Last message `timestamp` seen — the session's real end time, sent by
+    /// `backfill` as `ended_at` so re-ingest preserves history instead of now().
+    last_ts: Option<String>,
 }
 
 /// Sum per-message `usage` across a transcript JSONL, plus estimate hook/plugin
@@ -321,6 +466,21 @@ fn parse_transcript(content: &str, resolver: &PluginResolver) -> Parsed {
         }
         if let Some(m) = msg.and_then(|m| m.get("model")).and_then(|x| x.as_str()) {
             p.model = Some(m.to_string());
+        }
+        // Session metadata for backfill (every line carries these; first wins for
+        // id/cwd, last wins for timestamp = real end time).
+        if p.session_id.is_none() {
+            if let Some(s) = v.get("sessionId").and_then(|x| x.as_str()) {
+                p.session_id = Some(s.to_string());
+            }
+        }
+        if p.cwd.is_none() {
+            if let Some(c) = v.get("cwd").and_then(|x| x.as_str()) {
+                p.cwd = Some(c.to_string());
+            }
+        }
+        if let Some(ts) = v.get("timestamp").and_then(|x| x.as_str()) {
+            p.last_ts = Some(ts.to_string());
         }
         // Hook/plugin context injected on a lifecycle event lives under
         // `attachment` (hook_success / hook_additional_context), carrying
@@ -670,8 +830,10 @@ mod tests {
             overhead: 5,
             breakdown: HashMap::from([("SessionStart:startup".to_string(), 5)]),
             model: Some("claude-opus-4-8".to_string()),
+            ..Default::default()
         };
-        let body = telemetry_body("sess", "tokenmoth", &p);
+        // Live report (ended_at = None) → server stamps now(); no extra key leaks.
+        let body = telemetry_body("sess", "tokenmoth", &p, None);
         let obj = body.as_object().unwrap();
 
         // Exact field whitelist — nothing that could carry transcript / hook text.
@@ -695,5 +857,25 @@ mod tests {
         // project_path must be the basename, never an absolute path.
         assert_eq!(obj["project_path"], json!("tokenmoth"));
         assert!(!obj["project_path"].as_str().unwrap().contains('/'));
+    }
+
+    #[test]
+    fn backfill_body_carries_ended_at() {
+        let p = Parsed { input: 1, ..Default::default() };
+        let body = telemetry_body("sess", "repo", &p, Some("2026-06-09T12:00:00Z"));
+        assert_eq!(body["ended_at"], json!("2026-06-09T12:00:00Z"));
+    }
+
+    #[test]
+    fn parse_transcript_captures_session_meta_for_backfill() {
+        let t = concat!(
+            r#"{"sessionId":"abc-123","cwd":"/Users/x/proj","timestamp":"2026-06-09T10:00:00Z","message":{"usage":{"input_tokens":5}}}"#,
+            "\n",
+            r#"{"sessionId":"abc-123","cwd":"/Users/x/proj","timestamp":"2026-06-09T10:05:00Z","message":{"usage":{"output_tokens":7}}}"#,
+        );
+        let p = parse_transcript(t, &PluginResolver::default());
+        assert_eq!(p.session_id.as_deref(), Some("abc-123"));
+        assert_eq!(p.cwd.as_deref(), Some("/Users/x/proj"));
+        assert_eq!(p.last_ts.as_deref(), Some("2026-06-09T10:05:00Z")); // last wins
     }
 }
