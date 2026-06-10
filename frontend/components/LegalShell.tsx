@@ -1,5 +1,6 @@
 import Link from "next/link";
 import MothLogo from "@/components/MothLogo";
+import ThemeToggle from "@/components/ThemeToggle";
 import { lastUpdated } from "@/lib/legal";
 import { locales, localeLabel, type Locale } from "@/lib/i18n";
 
@@ -56,6 +57,7 @@ export default function LegalShell({
             <span className="text-[15px] font-medium tracking-hero text-ink">TokenMoth</span>
           </Link>
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             <div className="seg">
               {locales.map((l) => (
                 <Link

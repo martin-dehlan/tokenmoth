@@ -5,6 +5,7 @@ import Link from "next/link";
 import posthog from "posthog-js";
 import MothLogo from "@/components/MothLogo";
 import OsSelect from "@/components/OsSelect";
+import ThemeToggle from "@/components/ThemeToggle";
 import { detectOs, installLines, osNote, type Os } from "@/lib/install";
 import { createClient } from "@/lib/supabase/client";
 import { readConsent } from "@/lib/consent";
@@ -65,9 +66,12 @@ export default function Landing() {
             <span className="text-[15px] font-medium tracking-hero text-ink">TokenMoth</span>
             <span className="font-mono text-[12px] text-faint">/personal</span>
           </div>
-          <Link href="/login" className="text-[13px] text-muted hover:text-ink transition-colors">
-            sign in
-          </Link>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <Link href="/login" className="text-[13px] text-muted hover:text-ink transition-colors">
+              sign in
+            </Link>
+          </div>
         </div>
       </header>
 
