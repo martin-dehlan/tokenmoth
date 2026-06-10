@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import PostHogProvider from "@/components/PostHogProvider";
+import ConsentBanner from "@/components/ConsentBanner";
+import Footer from "@/components/Footer";
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -24,8 +26,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       </head>
-      <body className="font-sans bg-canvas text-ink antialiased">
-        <PostHogProvider>{children}</PostHogProvider>
+      <body className="font-sans bg-canvas text-ink antialiased min-h-screen flex flex-col">
+        <PostHogProvider>
+          <div className="flex-1 flex flex-col">{children}</div>
+          <Footer />
+          <ConsentBanner />
+        </PostHogProvider>
       </body>
     </html>
   );

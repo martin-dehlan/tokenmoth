@@ -14,7 +14,7 @@
   --faint: #9ca3af;
   --line: #d1d5db; /* control borders */
   --line-strong: #c4c9d0; /* solid bottom-edge shadow color */
-  --line-soft: #e5e7eb; /* seg inner borders */
+  --line-soft: #e5e7eb; /* seg/table inner borders */
   --hair: #ececee; /* very faint section dividers */
   --raise: #f3f4f6; /* hover / active fill */
   --accent: #1a7f64; /* deep teal — used sparingly */
@@ -130,6 +130,56 @@ body {
     display: inline-flex;
     align-items: center;
     letter-spacing: 0.02em;
+  }
+
+  /* Legal pages — readable long-form text inside the surface. */
+  .legal-prose h2 {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    margin-top: 28px;
+    margin-bottom: 8px;
+  }
+  .legal-prose h2:first-child {
+    margin-top: 0;
+  }
+  .legal-prose h3 {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink);
+    margin-top: 18px;
+    margin-bottom: 6px;
+  }
+  .legal-prose p {
+    margin-bottom: 12px;
+  }
+  .legal-prose ul {
+    list-style: disc;
+    padding-left: 20px;
+    margin-bottom: 12px;
+  }
+  .legal-prose li {
+    margin-bottom: 5px;
+  }
+  .legal-prose a {
+    text-decoration: underline;
+  }
+  .legal-prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 14px;
+    font-size: 12px;
+  }
+  .legal-prose th,
+  .legal-prose td {
+    border: 1px solid var(--line-soft);
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+  .legal-prose th {
+    background: var(--raise);
+    font-weight: 500;
   }
 
   /* Gauge / budget track — asymmetric radius + inset depth. */
