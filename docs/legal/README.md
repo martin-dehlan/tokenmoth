@@ -20,7 +20,8 @@ rechtlich nötig ist. Gehört zu **Milestone 9** und den Issues **#111–#118**.
 | Bereich | Ort |
 |---------|-----|
 | Operator-/Subprozessor-Stammdaten | `frontend/lib/legal.ts` |
-| Rechtsseiten | `frontend/app/{impressum,datenschutz,agb,widerruf}/page.tsx` |
+| Rechtsseiten (mehrsprachig, EN default) | `frontend/app/[locale]/{impressum,datenschutz,agb,widerruf}/page.tsx` |
+| Sprach-/Locale-Config | `frontend/lib/i18n.ts` (Locales: `en` default, `de`; Prefix `/en` `/de`) |
 | Consent-Banner (PostHog-Gating) | `frontend/components/ConsentBanner.tsx`, `lib/consent.ts`, `components/PostHogProvider.tsx` |
 | Footer mit Rechts-Links | `frontend/components/Footer.tsx` |
 | Account-Löschung / Export | `backend` `DELETE /v1/me`, `frontend/app/api/account/route.ts`, `components/DangerZone.tsx` |

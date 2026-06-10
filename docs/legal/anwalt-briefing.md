@@ -26,13 +26,15 @@ Zahlungsdienstleister (später). US-Transfer bei Vercel.
 
 ## 3. Zu prüfende Dokumente (Entwürfe im Repo)
 
-| Dokument | Pfad |
-|----------|------|
-| Impressum | `frontend/app/impressum/page.tsx` |
-| Datenschutzerklärung | `frontend/app/datenschutz/page.tsx` |
-| AGB | `frontend/app/agb/page.tsx` |
-| Widerrufsbelehrung | `frontend/app/widerruf/page.tsx` |
-| Stammdaten | `frontend/lib/legal.ts` |
+Mehrsprachig (EN default, DE via `/de`-Prefix), EN- und DE-Fassung je Seite:
+
+| Dokument | Pfad | URLs |
+|----------|------|------|
+| Impressum | `frontend/app/[locale]/impressum/page.tsx` | `/en/impressum`, `/de/impressum` |
+| Datenschutzerklärung | `frontend/app/[locale]/datenschutz/page.tsx` | `/en/datenschutz`, `/de/datenschutz` |
+| AGB | `frontend/app/[locale]/agb/page.tsx` | `/en/agb`, `/de/agb` |
+| Widerrufsbelehrung | `frontend/app/[locale]/widerruf/page.tsx` | `/en/widerruf`, `/de/widerruf` |
+| Stammdaten | `frontend/lib/legal.ts` | — |
 
 ## 4. Konkrete Fragen an die Anwältin / den Anwalt
 
@@ -50,6 +52,9 @@ Zahlungsdienstleister (später). US-Transfer bei Vercel.
    keine Daten an Anthropic sendet (Claude Code läuft lokal beim Nutzer)?
 8. **Haftung/AGB:** Haftungsbeschränkung und Gerichtsstandklausel zulässig?
 9. **EU-Streitschlichtung:** Hinweis im Impressum nötig/korrekt?
+10. **Sprache:** Default-Sprache der Rechtsseiten ist Englisch (DE via `/de`-Prefix).
+    Ist das für deutsche Verbraucher zulässig, oder muss die deutsche Fassung verbindlich/
+    vorrangig sein? Welche Fassung ist im Streitfall maßgeblich?
 
 ## 5. Freigabe-Workflow
 
