@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { site } from "@/lib/legal";
 import { localeFromPath } from "@/lib/i18n";
 import CookieSettingsLink from "@/components/CookieSettingsLink";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const LINKS: Record<"en" | "de", { slug: string; label: string }[]> = {
   en: [
@@ -41,6 +42,7 @@ export default function Footer() {
           </Link>
         ))}
         <CookieSettingsLink />
+        <ThemeToggle variant="text" />
       </div>
     </footer>
   );
