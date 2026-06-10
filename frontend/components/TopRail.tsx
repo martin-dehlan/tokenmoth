@@ -23,7 +23,7 @@ export default function TopRail({
 }) {
   return (
     <header className="border-b border-line">
-      <div className="mx-auto max-w-5xl px-5 h-14 flex items-center justify-between gap-4">
+      <div className="mx-auto max-w-7xl px-5 h-14 flex items-center justify-between gap-4">
         {/* left: logo pip + wordmark + workspace */}
         <Link href="/" className="flex items-center gap-2.5 shrink-0">
           <MothLogo className="h-[22px] w-auto text-ink shrink-0" />
