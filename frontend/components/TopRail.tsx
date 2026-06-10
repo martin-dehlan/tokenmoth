@@ -1,6 +1,7 @@
 import Link from "next/link";
 import WindowSelect from "./WindowSelect";
 import MothLogo from "./MothLogo";
+import ThemeToggle from "./ThemeToggle";
 
 type Nav = { key: string; label: string; href: string };
 
@@ -54,6 +55,7 @@ export default function TopRail({
         {/* right: date chip + settings */}
         <div className="flex items-center gap-2 shrink-0">
           <WindowSelect current={since} />
+          <ThemeToggle />
           <Link
             href="/settings"
             aria-label="settings"
