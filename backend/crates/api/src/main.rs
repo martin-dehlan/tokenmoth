@@ -162,7 +162,7 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/export", get(export))
         .route("/v1/keys", get(list_keys).post(create_key))
         .route("/v1/keys/:id/revoke", post(revoke_key))
-        .route("/v1/me", get(me))
+        .route("/v1/me", get(me).delete(delete_me))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
@@ -1366,6 +1366,24 @@ async fn me(
 ) -> Result<Json<Me>, (StatusCode, String)> {
     let (user_id, email) = auth_supabase_user(&st, &headers).await?;
     Ok(Json(Me { user_id, email }))
+}
+
+/// `DELETE /v1/me` — erase the caller's account (DSGVO Art. 17, #116).
+/// Deleting the `users` row cascades to `api_keys` and `token_logs`, so all
+/// personal data held by this service is removed. Note: the Supabase auth user
+/// (email/identity) lives in Supabase and must additionally be deleted via the
+/// Supabase admin API — tracked separately; see docs/legal/anwalt-briefing.md.
+async fn delete_me(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
+    sqlx::query("delete from users where id = $1")
+        .bind(user_id)
+        .execute(&st.db)
+        .await
+        .map_err(internal)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Validate a Supabase JWT (ES256 via JWKS, or legacy HS256 via the secret) and

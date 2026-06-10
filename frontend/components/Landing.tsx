@@ -5,8 +5,10 @@ import Link from "next/link";
 import posthog from "posthog-js";
 import MothLogo from "@/components/MothLogo";
 import OsSelect from "@/components/OsSelect";
+import ThemeToggle from "@/components/ThemeToggle";
 import { detectOs, installLines, osNote, type Os } from "@/lib/install";
 import { createClient } from "@/lib/supabase/client";
+import { readConsent } from "@/lib/consent";
 
 const PH = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
@@ -24,6 +26,16 @@ export default function Landing() {
     if (guess) setOs(guess);
   }, []);
 
+  // The desk is bg-stone; extend it to the body so the (transparent) global
+  // footer below this full-height view sits on the same color, not on canvas.
+  useEffect(() => {
+    const prev = document.body.style.background;
+    document.body.style.background = "var(--stone)";
+    return () => {
+      document.body.style.background = prev;
+    };
+  }, []);
+
   const preview = [...installLines(os), SETUP_TEASER];
   const note = osNote(os);
 
@@ -32,7 +44,7 @@ export default function Landing() {
   async function getKey() {
     setBusy(true);
     setErr(null);
-    if (PH) posthog.capture("landing_get_key_clicked");
+    if (PH && readConsent() === "granted") posthog.capture("landing_get_key_clicked");
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -45,7 +57,7 @@ export default function Landing() {
   }
 
   return (
-    <div className="h-screen overflow-hidden flex flex-col bg-stone">
+    <div className="flex-1 min-h-0 flex flex-col bg-stone">
       {/* top rail — same language as the dashboard TopRail */}
       <header className="shrink-0 border-b border-line">
         <div className="mx-auto max-w-4xl px-6 h-14 flex items-center justify-between gap-4">
@@ -54,9 +66,12 @@ export default function Landing() {
             <span className="text-[15px] font-medium tracking-hero text-ink">TokenMoth</span>
             <span className="font-mono text-[12px] text-faint">/personal</span>
           </div>
-          <Link href="/login" className="text-[13px] text-muted hover:text-ink transition-colors">
-            sign in
-          </Link>
+          <div className="flex items-center gap-4">
+            <ThemeToggle variant="icon" />
+            <Link href="/login" className="text-[13px] text-muted hover:text-ink transition-colors">
+              sign in
+            </Link>
+          </div>
         </div>
       </header>
 
