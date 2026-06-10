@@ -1,0 +1,83 @@
+// Central legal/compliance config — single source of truth for Impressum,
+// Datenschutzerklärung and the subprocessor list. Fill the TODO_* placeholders
+// with the real operator data BEFORE going live (tracked in #111 / #118).
+//
+// ⚠️ The legal page texts that consume this file are DRAFTS. Nothing here is a
+// substitute for advice from a lawyer — see docs/legal/anwalt-briefing.md.
+
+export const PLACEHOLDER = "TODO_AUSFÜLLEN";
+
+/** Operator ("Verantwortlicher" / §5 DDG). */
+export const operator = {
+  legalName: PLACEHOLDER, // e.g. "Martin Dehlan"
+  /** Rechtsform: Einzelunternehmer / GbR / UG (haftungsbeschränkt) … */
+  legalForm: "Einzelunternehmer (geplant)",
+  street: PLACEHOLDER, // ladungsfähige Anschrift, kein Postfach
+  postalCity: PLACEHOLDER, // "12345 Musterstadt"
+  country: "Deutschland",
+  email: "legal@tokenmoth.com", // TODO: einrichten/bestätigen
+  phone: PLACEHOLDER, // zweiter schneller Kontaktweg
+  /** USt-IdNr. falls vorhanden, sonst Kleinunternehmer-Hinweis (§19 UStG). */
+  vatId: PLACEHOLDER,
+  kleinunternehmer: true,
+} as const;
+
+export const site = {
+  name: "TokenMoth",
+  domain: "tokenmoth.com",
+  url: "https://tokenmoth.com",
+} as const;
+
+/** Last substantive edit of the legal texts (manually bumped). */
+export const lastUpdated = "2026-06-10";
+
+export type Subprocessor = {
+  name: string;
+  purpose: string;
+  /** Where personal data is processed. */
+  region: string;
+  /** Drittlandtransfer-Mechanismus, falls außerhalb EU/EWR. */
+  transfer: string;
+  /** AVV/DPA status — verify and link before go-live (#115). */
+  dpa: string;
+};
+
+// Keep in sync with docs/legal/subprozessoren.md.
+export const subprocessors: Subprocessor[] = [
+  {
+    name: "Supabase",
+    purpose: "Authentifizierung & Datenbank (Account, Nutzungsdaten)",
+    region: "EU/USA — Hosting-Region prüfen",
+    transfer: "EU-Region wählen bzw. SCC / EU-US DPF",
+    dpa: "AVV abzuschließen",
+  },
+  {
+    name: "Vercel",
+    purpose: "Hosting & Auslieferung der Web-App, Server-Logs",
+    region: "USA",
+    transfer: "SCC / EU-US Data Privacy Framework",
+    dpa: "DPA abzuschließen",
+  },
+  {
+    name: "PostHog",
+    purpose: "Produkt-Analytics (nur nach Einwilligung)",
+    region: "EU (eu.i.posthog.com)",
+    transfer: "EU-Region — kein Drittlandtransfer geplant",
+    dpa: "AVV abzuschließen",
+  },
+  {
+    name: "Anthropic",
+    purpose:
+      "Claude Code erzeugt die Nutzungsdaten lokal; TokenMoth sendet keine Transcripts/PII an Anthropic",
+    region: "USA (nur clientseitig durch Nutzer:in selbst)",
+    transfer: "nicht durch TokenMoth — klären",
+    dpa: "Relevanz prüfen",
+  },
+  {
+    name: "Zahlungsdienstleister (z. B. Stripe)",
+    purpose: "Abwicklung kostenpflichtiger Pläne",
+    region: "USA/EU",
+    transfer: "SCC / EU-US DPF",
+    dpa: "AVV vor Billing-Launch (#117)",
+  },
+];

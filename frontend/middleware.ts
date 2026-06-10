@@ -28,10 +28,14 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Public routes reachable without a session: the landing page and the legal
+  // pages (Impressum/Datenschutz must be accessible to everyone — #111/#112).
+  const PUBLIC = ["/", "/impressum", "/datenschutz", "/agb", "/widerruf"];
+
   // Gate everything the matcher covers (login + /auth/* are excluded below).
   // The root path is public: it serves the marketing landing page to guests
   // and the dashboard to authenticated users (branch lives in app/page.tsx).
-  if (!user && request.nextUrl.pathname !== "/") {
+  if (!user && !PUBLIC.includes(request.nextUrl.pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
