@@ -109,7 +109,7 @@ export default function OnboardingFlow() {
           <div className="font-mono text-[12px] text-faint">preparing your key…</div>
         ) : phase === "have-key" ? (
           <button
-            className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:bg-[#33373d] active:translate-y-px"
+            className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-opacity hover:opacity-90 active:translate-y-px"
             onClick={createKey}
           >
             {err ? "Try again" : "Generate my install command"}
@@ -130,7 +130,7 @@ export default function OnboardingFlow() {
             {note && <p className="mt-2 text-[10px] text-faint leading-relaxed">{note}</p>}
             <div className="mt-3 flex items-center gap-4 flex-wrap">
               <button
-                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:bg-[#33373d] active:translate-y-px"
+                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-opacity hover:opacity-90 active:translate-y-px"
                 onClick={copy}
               >
                 {copied ? "copied ✓" : "copy command"}
@@ -165,7 +165,7 @@ export default function OnboardingFlow() {
               <span className="text-[13px] text-ink">✓ first session received!</span>
               <Link
                 href="/"
-                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:bg-[#33373d] active:translate-y-px"
+                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-opacity hover:opacity-90 active:translate-y-px"
               >
                 Go to dashboard →
               </Link>

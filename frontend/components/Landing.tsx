@@ -95,7 +95,7 @@ export default function Landing() {
               <button
                 onClick={getKey}
                 disabled={busy}
-                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:bg-[#33373d] active:translate-y-px disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-opacity hover:opacity-90 active:translate-y-px disabled:opacity-60"
               >
                 {busy ? "redirecting…" : "Get your key"}
                 <span aria-hidden>→</span>
