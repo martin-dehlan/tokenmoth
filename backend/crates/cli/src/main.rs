@@ -265,7 +265,8 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
     // resolver attributes hook overhead to the owning plugin (scans local configs).
     let p = parse_transcript(&content, &PluginResolver::load());
 
-    let repo = git_repo_name(&cwd).unwrap_or_else(|| repo_from_path(&cwd));
+    // Prefer the real git repo the session worked in over the launch cwd (#109).
+    let repo = resolve_repo(Some(&cwd), &p.cwd_counts);
     // Live report: no ended_at → the server stamps now() (current behavior).
     let body = telemetry_body(&session_id, &repo, &p, None);
 
@@ -336,8 +337,7 @@ fn cmd_backfill(key: &str, api_url: &str, dry_run: bool) -> anyhow::Result<()> {
             skipped += 1; // no session id → can't upsert the right row
             continue;
         };
-        let cwd = p.cwd.clone().unwrap_or_else(|| ".".to_string());
-        let repo = git_repo_name(&cwd).unwrap_or_else(|| repo_from_path(&cwd));
+        let repo = resolve_repo(None, &p.cwd_counts);
         let score = p.input + p.output + p.cread + p.ccreate + p.overhead;
         let body = telemetry_body(&session_id, &repo, &p, p.last_ts.as_deref());
         let entry = Backfilled { repo, score, body };
@@ -438,9 +438,10 @@ struct Parsed {
     /// Session id from the transcript (`sessionId`) — used by `backfill` to
     /// upsert the right row. Empty on a live report (id comes from the hook).
     session_id: Option<String>,
-    /// Working dir from the transcript (`cwd`) — used by `backfill` to derive the
-    /// repo name. Empty on a live report (cwd comes from the hook).
-    cwd: Option<String>,
+    /// Per-`cwd` line counts across the transcript — lets repo attribution pick
+    /// the dominant git repo a session actually worked in, instead of the
+    /// home/non-repo dir it was launched from (#109).
+    cwd_counts: HashMap<String, i64>,
     /// Last message `timestamp` seen — the session's real end time, sent by
     /// `backfill` as `ended_at` so re-ingest preserves history instead of now().
     last_ts: Option<String>,
@@ -465,19 +466,22 @@ fn parse_transcript(content: &str, resolver: &PluginResolver) -> Parsed {
             p.ccreate += as_i64(u, "cache_creation_input_tokens");
         }
         if let Some(m) = msg.and_then(|m| m.get("model")).and_then(|x| x.as_str()) {
-            p.model = Some(m.to_string());
+            // Skip Claude Code's pseudo-models (`<synthetic>`, `<unknown>`) so a
+            // session ending on a synthetic turn keeps its real model (#108).
+            if !m.starts_with('<') {
+                p.model = Some(m.to_string());
+            }
         }
-        // Session metadata for backfill (every line carries these; first wins for
-        // id/cwd, last wins for timestamp = real end time).
+        // Session metadata for backfill / repo attribution. `sessionId` (first
+        // wins) and the `timestamp` (last wins = real end time); `cwd` is counted
+        // so we can pick the dominant git repo a session actually worked in (#109).
         if p.session_id.is_none() {
             if let Some(s) = v.get("sessionId").and_then(|x| x.as_str()) {
                 p.session_id = Some(s.to_string());
             }
         }
-        if p.cwd.is_none() {
-            if let Some(c) = v.get("cwd").and_then(|x| x.as_str()) {
-                p.cwd = Some(c.to_string());
-            }
+        if let Some(c) = v.get("cwd").and_then(|x| x.as_str()) {
+            *p.cwd_counts.entry(c.to_string()).or_insert(0) += 1;
         }
         if let Some(ts) = v.get("timestamp").and_then(|x| x.as_str()) {
             p.last_ts = Some(ts.to_string());
@@ -664,6 +668,37 @@ fn repo_from_path(p: &str) -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or("unknown")
         .to_string()
+}
+
+/// Resolve the repo a session belongs to, preferring a real git repo so sessions
+/// launched from a non-repo dir (e.g. `~`) aren't bucketed under the home folder
+/// name (#109). Order: the hook cwd if it's a git repo → the most-frequent
+/// transcript cwd that is → the basename of the best cwd we have.
+/// PRIVACY: returns only a repo *basename*, never a path.
+fn resolve_repo(hook_cwd: Option<&str>, cwd_counts: &HashMap<String, i64>) -> String {
+    // 1) the cwd the session ended in, if it's a git repo — most accurate.
+    if let Some(c) = hook_cwd {
+        if let Some(r) = git_repo_name(c) {
+            return r;
+        }
+    }
+    // 2) the dominant transcript cwd that is a git repo (ties broken by path).
+    let mut cwds: Vec<(&String, &i64)> = cwd_counts.iter().collect();
+    cwds.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    for (cwd, _) in &cwds {
+        if let Some(r) = git_repo_name(cwd) {
+            return r;
+        }
+    }
+    // 3) fallback: basename of the dominant transcript cwd (where work happened),
+    //    else the hook cwd. Prefer the transcript cwd so a home-launched session
+    //    isn't labeled after the home dir when no cwd resolves to a git repo now.
+    let best = cwds
+        .first()
+        .map(|(c, _)| (*c).clone())
+        .or_else(|| hook_cwd.map(str::to_string))
+        .unwrap_or_else(|| ".".to_string());
+    repo_from_path(&best)
 }
 
 #[cfg(test)]
@@ -875,7 +910,32 @@ mod tests {
         );
         let p = parse_transcript(t, &PluginResolver::default());
         assert_eq!(p.session_id.as_deref(), Some("abc-123"));
-        assert_eq!(p.cwd.as_deref(), Some("/Users/x/proj"));
+        assert_eq!(p.cwd_counts.get("/Users/x/proj"), Some(&2)); // counted per line
         assert_eq!(p.last_ts.as_deref(), Some("2026-06-09T10:05:00Z")); // last wins
+    }
+
+    #[test]
+    fn model_ignores_synthetic_pseudo_model() {
+        // A real model turn, then a trailing <synthetic> turn — the session must
+        // keep the real model, not be relabeled synthetic (#108).
+        let t = concat!(
+            r#"{"message":{"model":"claude-opus-4-8","usage":{"input_tokens":10}}}"#,
+            "\n",
+            r#"{"message":{"model":"<synthetic>","usage":{"output_tokens":0}}}"#,
+        );
+        let p = parse_transcript(t, &PluginResolver::default());
+        assert_eq!(p.model.as_deref(), Some("claude-opus-4-8"));
+    }
+
+    #[test]
+    fn resolve_repo_falls_back_to_dominant_cwd_basename() {
+        // No path here is a real git repo, so resolution falls through to the
+        // basename of the most-frequent transcript cwd (#109 fallback path).
+        let mut counts = HashMap::new();
+        counts.insert("/no/such/sample".to_string(), 50);
+        counts.insert("/no/such/home".to_string(), 3);
+        assert_eq!(resolve_repo(None, &counts), "sample");
+        // A non-repo hook cwd doesn't win over the dominant transcript cwd.
+        assert_eq!(resolve_repo(Some("/no/such/home"), &counts), "sample");
     }
 }
