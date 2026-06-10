@@ -325,17 +325,18 @@ fn parse_transcript(content: &str) -> Parsed {
         // `attachment` (hook_success / hook_additional_context), carrying
         // `hookEvent` + `hookName` + the injected `content`.
         if let Some(a) = v.get("attachment") {
-            if a.get("hookEvent").is_some() {
+            if let Some(ev) = a.get("hookEvent").and_then(|x| x.as_str()) {
                 if let Some(c) = a.get("content").and_then(|x| x.as_str()) {
                     let tok = (hook_content_len(c) / 4) as i64;
-                    p.overhead += tok;
-                    let name = a
-                        .get("hookName")
-                        .and_then(|x| x.as_str())
-                        .or_else(|| a.get("hookEvent").and_then(|x| x.as_str()))
-                        .unwrap_or("unknown")
-                        .to_string();
-                    *p.breakdown.entry(name).or_insert(0) += tok;
+                    if tok > 0 {
+                        p.overhead += tok;
+                        // Attribute to the specific hook script (which plugin) so the
+                        // breakdown reads "inject-claude-md ~12k" instead of lumping
+                        // every plugin under "SessionStart:startup".
+                        let command = a.get("command").and_then(|x| x.as_str()).unwrap_or("");
+                        let label = hook_label(ev, a.get("hookName").and_then(|x| x.as_str()), command);
+                        *p.breakdown.entry(label).or_insert(0) += tok;
+                    }
                 }
             }
         }
@@ -345,6 +346,23 @@ fn parse_transcript(content: &str) -> Parsed {
 
 fn as_i64(u: &Value, k: &str) -> i64 {
     u.get(k).and_then(|x| x.as_i64()).unwrap_or(0)
+}
+
+/// Human label for a hook's overhead bucket. Prefer the hook script's basename
+/// stem (e.g. `inject-claude-md`, `pretooluse-skill-inject`) so the breakdown
+/// attributes tokens to the specific plugin hook; fall back to the hook name /
+/// event when the command runs no script. PRIVACY: only the basename stem is
+/// returned — never the full path, `${CLAUDE_PLUGIN_ROOT}`, or any content.
+fn hook_label(hook_event: &str, hook_name: Option<&str>, command: &str) -> String {
+    for tok in command.split(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
+        let base = tok.rsplit('/').next().unwrap_or(tok);
+        if let Some((stem, ext)) = base.rsplit_once('.') {
+            if matches!(ext, "mjs" | "cjs" | "js" | "ts" | "sh" | "py") && !stem.is_empty() {
+                return stem.to_string();
+            }
+        }
+    }
+    hook_name.filter(|s| !s.is_empty()).unwrap_or(hook_event).to_string()
 }
 
 /// Byte length of a hook's injected content. Claude Code truncates large hook
@@ -487,6 +505,28 @@ mod tests {
         // marker but missing file → falls back to in-line length
         let missing = "Full output saved to: /no/such/file_tm_test.txt\npreview";
         assert_eq!(hook_content_len(missing), missing.len());
+    }
+
+    #[test]
+    fn hook_label_attributes_to_script_then_falls_back() {
+        // script in command → basename stem (no path leaked)
+        assert_eq!(
+            hook_label("SessionStart", Some("SessionStart:startup"),
+                "node \"${CLAUDE_PLUGIN_ROOT}/hooks/inject-claude-md.mjs\""),
+            "inject-claude-md"
+        );
+        assert_eq!(
+            hook_label("PreToolUse", Some("PreToolUse:Bash"),
+                "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse-skill-inject.mjs\""),
+            "pretooluse-skill-inject"
+        );
+        // no script → hook name fallback (e.g. caveman's free-text command)
+        assert_eq!(
+            hook_label("SessionStart", Some("SessionStart:startup"), "Loading caveman mode..."),
+            "SessionStart:startup"
+        );
+        // empty command + no hook name → event
+        assert_eq!(hook_label("PreToolUse", None, ""), "PreToolUse");
     }
 
     #[test]
