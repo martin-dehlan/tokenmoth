@@ -466,6 +466,42 @@ export async function fetchSessions(
   }
 }
 
+// ---- a single session by id (GET /v1/session/:id) --------------------------
+
+export async function fetchSession(
+  accessToken: string,
+  id: string,
+): Promise<SessionUsage | null> {
+  if (!accessToken) return null;
+  try {
+    const res = await fetch(`${API_URL}/v1/session/${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const s = (await res.json()) as {
+      session_id: string;
+      repo: string;
+      model: string | null;
+      total_tokens: number;
+      hook_overhead_tokens: number;
+      hook_overhead_breakdown: Record<string, number>;
+      ended_at: string;
+    };
+    return {
+      sessionId: s.session_id,
+      repo: s.repo,
+      model: s.model,
+      totalTokens: s.total_tokens,
+      hookOverheadTokens: s.hook_overhead_tokens,
+      hookOverheadBreakdown: s.hook_overhead_breakdown ?? {},
+      endedAt: s.ended_at,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Color per model family.
 export function modelColor(model: string): string {
   const m = model.toLowerCase();
