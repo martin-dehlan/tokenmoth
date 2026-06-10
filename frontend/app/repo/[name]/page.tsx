@@ -53,7 +53,7 @@ export default async function RepoDetail({
     <>
       <TopRail active="models" since={since} />
 
-      <main className="mx-auto max-w-5xl px-5">
+      <main className="mx-auto max-w-7xl px-5">
         {!live && (
           <div className="mt-5 text-[11px] text-warn flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-warn inline-block" />
