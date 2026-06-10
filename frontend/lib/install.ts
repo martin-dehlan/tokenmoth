@@ -10,9 +10,18 @@ export const OS_OPTIONS: { id: Os; label: string }[] = [
   { id: "windows", label: "Windows" },
 ];
 
-const BASE = "https://tokenmoth-dist.s3.eu-central-1.amazonaws.com";
+// Branded dist domain (CloudFront → S3, see issue #124). The raw S3 URL stays
+// as a transitional fallback inside the installers themselves.
+const BASE = "https://get.tokenmoth.com";
 const CURL = `curl -fsSL ${BASE}/install.sh | sh`;
 const PWSH = `irm ${BASE}/install.ps1 | iex`;
+
+// Cross-platform one-liners. The npm path is the lowest-friction option for the
+// Claude Code crowd — everyone already has Node/npm (Claude Code ships over
+// npm), no compile, no toolchain. Homebrew is the trusted Mac/Linux default.
+export const NPM = "npm install -g tokenmoth";
+export const NPX = "npx tokenmoth";
+export const BREW = "brew install martin-dehlan/tokenmoth/tokenmoth";
 
 // The install line(s) for an OS. Windows uses the native PowerShell installer;
 // macOS/Linux share the curl|sh path.
