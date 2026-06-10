@@ -267,8 +267,9 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
 
     // Prefer the real git repo the session worked in over the launch cwd (#109).
     let repo = resolve_repo(Some(&cwd), &p.cwd_counts);
+    let mcp = mcp_servers(Some(&cwd), &p.cwd_counts);
     // Live report: no ended_at → the server stamps now() (current behavior).
-    let body = telemetry_body(&session_id, &repo, &p, None);
+    let body = telemetry_body(&session_id, &repo, &p, None, &mcp);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
@@ -338,8 +339,9 @@ fn cmd_backfill(key: &str, api_url: &str, dry_run: bool) -> anyhow::Result<()> {
             continue;
         };
         let repo = resolve_repo(None, &p.cwd_counts);
+        let mcp = mcp_servers(None, &p.cwd_counts);
         let score = p.input + p.output + p.cread + p.ccreate + p.overhead;
-        let body = telemetry_body(&session_id, &repo, &p, p.last_ts.as_deref());
+        let body = telemetry_body(&session_id, &repo, &p, p.last_ts.as_deref(), &mcp);
         let entry = Backfilled { repo, score, body };
         match best.get(&session_id) {
             Some(prev) if prev.score >= score => {}
@@ -404,7 +406,15 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
 /// Keep this whitelist tight; `telemetry_body_only_whitelisted_fields` enforces it.
 /// `ended_at` (a timestamp, no content) is included only for backfill, so a
 /// re-ingest preserves the session's real end time instead of `now()`.
-fn telemetry_body(session_id: &str, repo: &str, p: &Parsed, ended_at: Option<&str>) -> Value {
+/// `mcp_servers` is the list of MCP server *names* active for the project (#106) —
+/// names only, never paths or schemas.
+fn telemetry_body(
+    session_id: &str,
+    repo: &str,
+    p: &Parsed,
+    ended_at: Option<&str>,
+    mcp: &[String],
+) -> Value {
     let mut body = json!({
         "session_id": session_id,
         // basename only — never the absolute cwd (no username / dir structure leak)
@@ -417,11 +427,43 @@ fn telemetry_body(session_id: &str, repo: &str, p: &Parsed, ended_at: Option<&st
         "cache_creation_input_tokens": p.ccreate,
         "hook_overhead_tokens": p.overhead,
         "hook_overhead_breakdown": p.breakdown,
+        "mcp_servers": mcp,
     });
     if let Some(ts) = ended_at {
         body["ended_at"] = json!(ts);
     }
     body
+}
+
+/// MCP server names active for a session's project. Claude Code keeps a per-project
+/// MCP log dir at `<cache>/claude-cli-nodejs/<slug>/mcp-logs-<server>/`; the presence
+/// of those dirs is the only reliable local signal of which MCP servers were loaded.
+/// Their tool-schema *sizes* aren't recorded anywhere measurable — that cost is
+/// already inside the session's token totals, just not separable per server (#106).
+/// PRIVACY: returns only server *names* — never the cwd/slug/path or any content.
+fn mcp_servers(primary_cwd: Option<&str>, cwd_counts: &HashMap<String, i64>) -> Vec<String> {
+    let Some(cache) = dirs::cache_dir() else { return Vec::new() };
+    // Try the hook cwd first, then the dominant transcript cwd.
+    let mut cwds: Vec<String> = primary_cwd.map(|c| vec![c.to_string()]).unwrap_or_default();
+    let mut counted: Vec<(&String, &i64)> = cwd_counts.iter().collect();
+    counted.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    cwds.extend(counted.into_iter().map(|(c, _)| c.clone()));
+
+    for cwd in cwds {
+        // Claude Code slugifies the project path by replacing every `/` with `-`.
+        let slug = cwd.replace('/', "-");
+        let dir = cache.join("claude-cli-nodejs").join(&slug);
+        let mut servers: Vec<String> = read_subdirs(&dir)
+            .iter()
+            .filter_map(|p| p.file_name().and_then(|s| s.to_str()))
+            .filter_map(|n| n.strip_prefix("mcp-logs-").map(str::to_string))
+            .collect();
+        if !servers.is_empty() {
+            servers.sort();
+            return servers;
+        }
+    }
+    Vec::new()
 }
 
 /// Aggregated transcript stats.
@@ -868,7 +910,7 @@ mod tests {
             ..Default::default()
         };
         // Live report (ended_at = None) → server stamps now(); no extra key leaks.
-        let body = telemetry_body("sess", "tokenmoth", &p, None);
+        let body = telemetry_body("sess", "tokenmoth", &p, None, &["vercel".to_string()]);
         let obj = body.as_object().unwrap();
 
         // Exact field whitelist — nothing that could carry transcript / hook text.
@@ -882,6 +924,7 @@ mod tests {
                 "hook_overhead_breakdown",
                 "hook_overhead_tokens",
                 "input_tokens",
+                "mcp_servers",
                 "model",
                 "output_tokens",
                 "project_path",
@@ -892,12 +935,14 @@ mod tests {
         // project_path must be the basename, never an absolute path.
         assert_eq!(obj["project_path"], json!("tokenmoth"));
         assert!(!obj["project_path"].as_str().unwrap().contains('/'));
+        // mcp_servers carries only names — no path separators.
+        assert_eq!(obj["mcp_servers"], json!(["vercel"]));
     }
 
     #[test]
     fn backfill_body_carries_ended_at() {
         let p = Parsed { input: 1, ..Default::default() };
-        let body = telemetry_body("sess", "repo", &p, Some("2026-06-09T12:00:00Z"));
+        let body = telemetry_body("sess", "repo", &p, Some("2026-06-09T12:00:00Z"), &[]);
         assert_eq!(body["ended_at"], json!("2026-06-09T12:00:00Z"));
     }
 

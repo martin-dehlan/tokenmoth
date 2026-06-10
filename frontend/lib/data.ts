@@ -427,6 +427,7 @@ export type SessionUsage = {
   totalTokens: number;
   hookOverheadTokens: number;
   hookOverheadBreakdown: Record<string, number>;
+  mcpServers: string[]; // MCP server names active for the project (#106)
   endedAt: string;
 };
 
@@ -450,6 +451,7 @@ export async function fetchSessions(
       total_tokens: number;
       hook_overhead_tokens: number;
       hook_overhead_breakdown: Record<string, number>;
+      mcp_servers?: string[];
       ended_at: string;
     }>;
     return d.map((s) => ({
@@ -459,6 +461,7 @@ export async function fetchSessions(
       totalTokens: s.total_tokens,
       hookOverheadTokens: s.hook_overhead_tokens,
       hookOverheadBreakdown: s.hook_overhead_breakdown ?? {},
+      mcpServers: s.mcp_servers ?? [],
       endedAt: s.ended_at,
     }));
   } catch {
@@ -486,6 +489,7 @@ export async function fetchSession(
       total_tokens: number;
       hook_overhead_tokens: number;
       hook_overhead_breakdown: Record<string, number>;
+      mcp_servers?: string[];
       ended_at: string;
     };
     return {
@@ -495,6 +499,7 @@ export async function fetchSession(
       totalTokens: s.total_tokens,
       hookOverheadTokens: s.hook_overhead_tokens,
       hookOverheadBreakdown: s.hook_overhead_breakdown ?? {},
+      mcpServers: s.mcp_servers ?? [],
       endedAt: s.ended_at,
     };
   } catch {
