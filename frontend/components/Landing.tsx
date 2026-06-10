@@ -25,6 +25,16 @@ export default function Landing() {
     if (guess) setOs(guess);
   }, []);
 
+  // The desk is bg-stone; extend it to the body so the (transparent) global
+  // footer below this full-height view sits on the same color, not on canvas.
+  useEffect(() => {
+    const prev = document.body.style.background;
+    document.body.style.background = "var(--stone)";
+    return () => {
+      document.body.style.background = prev;
+    };
+  }, []);
+
   const preview = [...installLines(os), SETUP_TEASER];
   const note = osNote(os);
 

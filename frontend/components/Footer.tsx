@@ -26,8 +26,8 @@ const LINKS: Record<"en" | "de", { slug: string; label: string }[]> = {
 export default function Footer() {
   const locale = localeFromPath(usePathname() ?? "/");
   return (
-    <footer className="border-t border-line mt-auto">
-      <div className="mx-auto max-w-5xl px-5 py-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-faint">
+    <footer className="mt-auto bg-transparent">
+      <div className="mx-auto max-w-5xl px-5 py-6 flex flex-wrap items-center justify-center text-center gap-x-5 gap-y-2 text-[11px] text-faint">
         <span className="text-muted">
           © {new Date().getFullYear()} {site.name}
         </span>
