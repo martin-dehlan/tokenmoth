@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 
 // DELETE /api/account → proxies to backend DELETE /v1/me with the user's JWT,
 // then signs the user out. Erases all account data (DSGVO Art. 17, #116).
-const API = process.env.TOKENMOTH_API_URL ?? "http://localhost:8080";
+const API = process.env.TOKENMOTH_API_URL ?? process.env.NEXT_PUBLIC_TOKENMOTH_API_URL ?? "http://localhost:8080";
 
 export async function DELETE() {
   const supabase = createClient();

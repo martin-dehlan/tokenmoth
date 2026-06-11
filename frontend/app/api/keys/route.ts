@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 
 // Proxy to the API using the signed-in user's Supabase JWT → backend scopes
 // keys to that user. The JWT stays server-side (httpOnly cookie → here).
-const API = process.env.TOKENMOTH_API_URL ?? "http://localhost:8080";
+const API = process.env.TOKENMOTH_API_URL ?? process.env.NEXT_PUBLIC_TOKENMOTH_API_URL ?? "http://localhost:8080";
 
 async function userToken() {
   const supabase = createClient();

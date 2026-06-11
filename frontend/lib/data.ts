@@ -30,7 +30,7 @@ type ApiRepo = {
   last_active: string;
 };
 
-const API_URL = process.env.TOKENMOTH_API_URL ?? "http://localhost:8080";
+const API_URL = process.env.TOKENMOTH_API_URL ?? process.env.NEXT_PUBLIC_TOKENMOTH_API_URL ?? "http://localhost:8080";
 
 export type ReposResult = {
   repos: RepoUsage[];
