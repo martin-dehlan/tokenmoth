@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { site } from "@/lib/legal";
 import { localeFromPath } from "@/lib/i18n";
+import { PAGE_MAX_W } from "@/lib/ui";
 import CookieSettingsLink from "@/components/CookieSettingsLink";
 
 const LINKS: Record<"en" | "de", { slug: string; label: string }[]> = {
@@ -27,7 +28,7 @@ export default function Footer() {
   const locale = localeFromPath(usePathname() ?? "/");
   return (
     <footer className="mt-auto bg-transparent">
-      <div className="mx-auto max-w-7xl px-5 py-6 flex flex-wrap items-center justify-center text-center gap-x-5 gap-y-2 text-[11px] text-faint">
+      <div className={`mx-auto ${PAGE_MAX_W} px-5 py-6 flex flex-wrap items-center justify-center text-center gap-x-5 gap-y-2 text-[11px] text-faint`}>
         <span className="text-muted">
           © {new Date().getFullYear()} {site.name}
         </span>

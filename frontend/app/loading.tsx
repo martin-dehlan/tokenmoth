@@ -1,6 +1,8 @@
+import { PAGE_MAIN } from "@/lib/ui";
+
 export default function Loading() {
   return (
-    <main className="mx-auto max-w-7xl px-5">
+    <main className={PAGE_MAIN}>
       <div className="my-7 rounded-surface border border-line bg-surface shadow-surface p-8 animate-pulse">
         <div className="h-3 w-24 bg-hair rounded mb-3" />
         <div className="h-12 w-40 bg-hair rounded mb-8" />
