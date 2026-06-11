@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import posthog from "posthog-js";
 import OsSelect from "@/components/OsSelect";
-import { detectOs, installLines, osNote, type Os } from "@/lib/install";
+import MethodSelect from "@/components/MethodSelect";
+import { detectOs, installSequence, methodNote, type Method, type Os } from "@/lib/install";
 
 const PH = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const API_URL = process.env.NEXT_PUBLIC_TOKENMOTH_API_URL ?? "http://localhost:8080";
@@ -16,6 +17,7 @@ export default function OnboardingFlow() {
   const [phase, setPhase] = useState<Phase>("init");
   const [copied, setCopied] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [method, setMethod] = useState<Method>("npm");
   const [os, setOs] = useState<Os>("macos");
 
   // Guess the visitor's OS after mount (keeps SSR output stable).
@@ -82,9 +84,9 @@ export default function OnboardingFlow() {
   }, [phase]);
 
   const cmd = key
-    ? [...installLines(os), `tokenmoth setup --key ${key} --api-url ${API_URL}`].join("\n")
+    ? installSequence(method, os, `--key ${key} --api-url ${API_URL}`).join("\n")
     : "";
-  const note = osNote(os);
+  const note = methodNote(method, os);
 
   async function copy() {
     try {
@@ -116,8 +118,9 @@ export default function OnboardingFlow() {
           </button>
         ) : (
           <>
-            <div className="flex items-center justify-end mb-2.5">
-              <OsSelect current={os} onSelect={setOs} />
+            <div className="flex items-center justify-end gap-2 mb-2.5">
+              {method === "script" && <OsSelect current={os} onSelect={setOs} />}
+              <MethodSelect current={method} onSelect={setMethod} />
             </div>
             <pre className="font-mono text-[12px] leading-[1.7] text-ink whitespace-pre-wrap break-all border border-line rounded-btn bg-canvas px-4 py-3 m-0 shadow-track">
               {cmd.split("\n").map((line, i) => (
