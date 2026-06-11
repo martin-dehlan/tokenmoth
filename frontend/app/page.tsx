@@ -6,7 +6,8 @@ import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import Optimizer from "@/components/Optimizer";
 import Landing from "@/components/Landing";
-import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow, chartUnitLabel, distinctDays } from "@/lib/data";
+import BudgetBanner from "@/components/BudgetBanner";
+import { fetchDashboard, fetchBudget, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow, chartUnitLabel, distinctDays } from "@/lib/data";
 import { PAGE_MAIN } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,6 +35,8 @@ export default async function Dashboard({
   const { repos, series, models, trends, apiCostUsd, overheadByHook, mcpUsage, avgBaselineTokens, source, error } =
     await fetchDashboard(token, since);
   const live = source === "live";
+  // Monthly budget is window-independent (always current calendar month).
+  const budget = await fetchBudget(token);
 
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
   const grandSessions = repos.reduce((a, r) => a + r.sessions, 0);
@@ -60,6 +63,8 @@ export default async function Dashboard({
             go live.
           </div>
         )}
+
+        {budget && <BudgetBanner budget={budget} />}
 
         {/* one elevated surface */}
         <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">

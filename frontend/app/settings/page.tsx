@@ -1,6 +1,7 @@
 import TopRail from "@/components/TopRail";
 import KeyManager from "@/components/KeyManager";
 import PlanSelect from "@/components/PlanSelect";
+import BudgetSetting from "@/components/BudgetSetting";
 import DangerZone from "@/components/DangerZone";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,15 @@ export default function Settings() {
               off immediately.
             </p>
             <KeyManager />
+          </section>
+
+          <section className="px-8 pt-6 pb-7 border-t border-hair">
+            <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">monthly budget</h2>
+            <p className="text-[12px] text-muted mb-4">
+              Set a monthly spend target. The dashboard shows a banner at 80% and 100% of budget
+              (estimated API-equivalent cost).
+            </p>
+            <BudgetSetting />
           </section>
 
           <section className="px-8 pt-6 pb-7 border-t border-hair">

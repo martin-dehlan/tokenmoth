@@ -102,6 +102,29 @@ export function fmtUsd(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+// ---- per-user monthly budget + month-to-date spend (#30) -------------------
+
+export type Budget = { budgetUsd: number; spendUsd: number; pct: number };
+
+export async function fetchBudget(accessToken: string): Promise<Budget | null> {
+  if (!accessToken) return null;
+  try {
+    const res = await fetch(`${API_URL}/v1/budget`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return {
+      budgetUsd: typeof d.budget_usd === "number" ? d.budget_usd : 0,
+      spendUsd: typeof d.spend_usd === "number" ? d.spend_usd : 0,
+      pct: typeof d.pct === "number" ? d.pct : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ISO timestamp -> "2m ago". Non-date strings (demo labels) pass through.
 export function relativeTime(value: string): string {
   const t = Date.parse(value);
