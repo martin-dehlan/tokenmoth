@@ -70,19 +70,12 @@ jobs:
           ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
           bin="backend/target/${{ matrix.target }}/release/tokenmoth${ext}"
           tar -czf "tokenmoth-${{ matrix.target }}.tar.gz" -C "$(dirname "$bin")" "tokenmoth${ext}"
-          # sha256 sidecar — Homebrew needs it, and it lets curl users verify.
+          # sha256 sidecar — lets curl users verify the download.
           if command -v sha256sum >/dev/null; then
             sha256sum "tokenmoth-${{ matrix.target }}.tar.gz" | awk '{print $1}' > "tokenmoth-${{ matrix.target }}.tar.gz.sha256"
           else
             shasum -a 256 "tokenmoth-${{ matrix.target }}.tar.gz" | awk '{print $1}' > "tokenmoth-${{ matrix.target }}.tar.gz.sha256"
           fi
-
-      # Hand the checksum to the homebrew job (rendered after all builds finish).
-      - name: Upload sha256 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sha256-${{ matrix.target }}
-          path: tokenmoth-${{ matrix.target }}.tar.gz.sha256
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -133,49 +126,3 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  # ── Homebrew channel ─────────────────────────────────────────────────────
-  # Render dist/homebrew/tokenmoth.rb with the version + checksums and push it
-  # to the public tap repo so `brew install martin-dehlan/tokenmoth/tokenmoth`
-  # tracks the release. Requires a HOMEBREW_TAP_TOKEN PAT with repo write.
-  homebrew:
-    name: update homebrew tap
-    needs: build
-    runs-on: ubuntu-latest
-    if: ${{ vars.PUBLISH_HOMEBREW == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-      - name: Download checksums
-        uses: actions/download-artifact@v4
-        with:
-          pattern: sha256-*
-          path: sha256
-          merge-multiple: true
-      - name: Render formula
-        run: |
-          ver="${{ inputs.tag }}"; ver="${ver#cli-v}"
-          f=dist/homebrew/tokenmoth.rb
-          sed -i "s/{{VERSION}}/$ver/" "$f"
-          for t in aarch64-apple-darwin x86_64-apple-darwin \
-                   aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
-            sum="$(cat "sha256/tokenmoth-$t.tar.gz.sha256")"
-            key="$(echo "$t" | tr 'a-z-' 'A-Z_')"   # e.g. AARCH64_APPLE_DARWIN
-            sed -i "s/{{SHA256_$key}}/$sum/" "$f"
-          done
-          cat "$f"
-      - name: Push to tap
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          ver="${{ inputs.tag }}"; ver="${ver#cli-v}"
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/martin-dehlan/homebrew-tokenmoth.git" tap
-          mkdir -p tap/Formula
-          cp dist/homebrew/tokenmoth.rb tap/Formula/tokenmoth.rb
-          cd tap
-          git config user.name "tokenmoth-ci"
-          git config user.email "ci@tokenmoth.com"
-          git add Formula/tokenmoth.rb
-          git commit -m "tokenmoth $ver" || { echo "no formula change"; exit 0; }
-          git push

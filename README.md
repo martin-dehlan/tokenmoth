@@ -89,13 +89,7 @@ npx tokenmoth setup --key <your-key>     # one-off, no install
 npm install -g tokenmoth                  # or install globally
 ```
 
-**Homebrew** (macOS + Linux):
-
-```bash
-brew install martin-dehlan/tokenmoth/tokenmoth
-```
-
-**curl / PowerShell** (no Node, no Homebrew):
+**curl / PowerShell** (no Node):
 
 ```bash
 curl -fsSL https://get.tokenmoth.com/install.sh | sh          # macOS / Linux
@@ -112,8 +106,7 @@ Installers download the right binary for your OS/arch (macOS + Linux arm64/x64,
 Windows x64) from the branded dist host (`get.tokenmoth.com`, CloudFront → S3;
 see [#124](https://github.com/martin-dehlan/tokenmoth/issues/124)), with the raw
 S3 bucket as a transitional fallback. Build + publish: `.github/workflows/release.yml`.
-npm wrapper lives in [`npm/`](./npm); Homebrew formula in
-[`dist/homebrew/`](./dist/homebrew).
+npm wrapper lives in [`npm/`](./npm).
 
 **From source:**
 
