@@ -14,8 +14,9 @@ use std::time::Instant;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-/// Max telemetry body size. A real session payload is well under 1 KB.
-const MAX_BODY_BYTES: usize = 16 * 1024;
+/// Max telemetry body size. The per-turn usage series (#152) is capped at 360
+/// points CLI-side (~10 KB worst case); 64 KB leaves comfortable headroom.
+const MAX_BODY_BYTES: usize = 64 * 1024;
 
 #[derive(Clone)]
 struct AppState {
@@ -89,6 +90,21 @@ struct Telemetry {
     /// MCP server names active for the session's project — names only (#106).
     #[serde(default)]
     mcp_servers: Vec<String>,
+    /// Tool invocations per MCP server name (#153). Counts only.
+    #[serde(default)]
+    mcp_calls: HashMap<String, i64>,
+    /// First API call's context size (input + cache_read + cache_creation) —
+    /// the measured per-turn setup cost (#152).
+    #[serde(default)]
+    baseline_tokens: i64,
+    /// Real number of API calls in the session (#152). Also marks rows
+    /// ingested by a CLI that knows about mcp_calls (turn_count > 0).
+    #[serde(default)]
+    turn_count: i64,
+    /// Per-call usage [[input, cache_read, cache_creation, output], ...],
+    /// downsampled CLI-side to ≤360 points (#152).
+    #[serde(default)]
+    turn_usage: Vec<[i64; 4]>,
 }
 
 fn init_tracing() {
@@ -243,6 +259,8 @@ async fn ingest(
         || t.cache_read_input_tokens < 0
         || t.cache_creation_input_tokens < 0
         || t.hook_overhead_tokens < 0
+        || t.baseline_tokens < 0
+        || t.turn_count < 0
     {
         return Err((StatusCode::BAD_REQUEST, "token counts must be non-negative".to_string()));
     }
@@ -260,8 +278,9 @@ async fn ingest(
         insert into token_logs
           (user_id, session_id, repo, project_path, input_tokens, output_tokens,
            cache_read_input_tokens, cache_creation_input_tokens, model, hook_overhead_tokens,
-           hook_overhead_breakdown, ended_at, mcp_servers)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, coalesce($12, now()), $13)
+           hook_overhead_breakdown, ended_at, mcp_servers, mcp_calls, baseline_tokens,
+           turn_count, turn_usage)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, coalesce($12, now()), $13,$14,$15,$16,$17)
         on conflict (session_id) do update set
            input_tokens                = excluded.input_tokens,
            output_tokens               = excluded.output_tokens,
@@ -272,6 +291,10 @@ async fn ingest(
            repo                         = excluded.repo,
            model                        = excluded.model,
            mcp_servers                  = excluded.mcp_servers,
+           mcp_calls                    = excluded.mcp_calls,
+           baseline_tokens              = excluded.baseline_tokens,
+           turn_count                   = excluded.turn_count,
+           turn_usage                   = excluded.turn_usage,
            -- live reports ($12 NULL) → now() (unchanged); backfill keeps real end time
            ended_at                     = coalesce($12, now())
         "#,
@@ -295,6 +318,10 @@ async fn ingest(
     ))
     .bind(t.ended_at)
     .bind(sqlx::types::Json(&t.mcp_servers))
+    .bind(sqlx::types::Json(&t.mcp_calls))
+    .bind(t.baseline_tokens)
+    .bind(t.turn_count)
+    .bind(sqlx::types::Json(&t.turn_usage))
     .execute(&st.db)
     .await
     .map_err(internal)?;
@@ -987,6 +1014,17 @@ struct HookOverheadOut {
     sessions: i64,
 }
 
+/// Loaded-vs-called rollup per MCP server (#153). Only counts sessions ingested
+/// by a call-tracking CLI (turn_count > 0) — older rows can't distinguish
+/// "never called" from "not measured".
+#[derive(sqlx::FromRow, Serialize)]
+struct McpUsageOut {
+    server: String,
+    sessions_loaded: i64,
+    sessions_called: i64,
+    calls: i64,
+}
+
 #[derive(Serialize)]
 struct DashboardResponse {
     since: String,
@@ -998,6 +1036,10 @@ struct DashboardResponse {
     api_cost_usd: f64,
     /// Total overhead tokens per hook/plugin across the window, ranked (#85).
     overhead_by_hook: Vec<HookOverheadOut>,
+    /// Loaded-vs-called per MCP server across the window (#153).
+    mcp_usage: Vec<McpUsageOut>,
+    /// Avg measured first-call context across call-tracking sessions (#152).
+    avg_baseline_tokens: i64,
 }
 
 async fn dashboard(
@@ -1151,8 +1193,47 @@ async fn dashboard(
     )
     .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
 
+    // 6) MCP servers: loaded vs actually called (#153). Restricted to rows from
+    // a call-tracking CLI (turn_count > 0) — see McpUsageOut. The union covers
+    // servers that were called but missed by load detection.
+    let mcp_usage: Vec<McpUsageOut> = sqlx::query_as(
+        r#"
+        with s as (
+            select session_id, mcp_servers, mcp_calls
+            from token_logs
+            where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+              and turn_count > 0
+        ), names as (
+            select session_id, jsonb_array_elements_text(mcp_servers) as server, mcp_calls from s
+            union
+            select session_id, jsonb_object_keys(mcp_calls) as server, mcp_calls from s
+        )
+        select server,
+               count(distinct session_id)::bigint as sessions_loaded,
+               count(distinct session_id) filter
+                 (where coalesce((mcp_calls->>server)::bigint, 0) > 0)::bigint as sessions_called,
+               coalesce(sum(coalesce((mcp_calls->>server)::bigint, 0)), 0)::bigint as calls
+        from names
+        group by server
+        order by sessions_loaded desc, server
+        "#,
+    )
+    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
+
+    // 7) avg measured baseline across call-tracking sessions (#152)
+    let avg_baseline_tokens: i64 = sqlx::query_scalar(
+        r#"
+        select coalesce(avg(baseline_tokens), 0)::bigint
+        from token_logs
+        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+          and turn_count > 0 and baseline_tokens > 0
+        "#,
+    )
+    .bind(user_id).bind(cutoff).fetch_one(&st.db).await.map_err(internal)?;
+
     Ok(Json(DashboardResponse {
         since, repos, series, models, trends, api_cost_usd, overhead_by_hook,
+        mcp_usage, avg_baseline_tokens,
     }))
 }
 
@@ -1165,10 +1246,14 @@ struct SessionRow {
     model: Option<String>,
     input_tokens: i64,
     output_tokens: i64,
+    cache_read_tokens: i64,
     cache_creation_tokens: i64,
     hook_overhead_tokens: i64,
     hook_overhead_breakdown: sqlx::types::Json<HashMap<String, i64>>,
     mcp_servers: sqlx::types::Json<Vec<String>>,
+    mcp_calls: sqlx::types::Json<HashMap<String, i64>>,
+    baseline_tokens: i64,
+    turn_count: i64,
     ended_at: DateTime<Utc>,
 }
 
@@ -1178,11 +1263,44 @@ struct SessionOut {
     repo: String,
     model: Option<String>,
     total_tokens: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_creation_tokens: i64,
     hook_overhead_tokens: i64,
     hook_overhead_breakdown: HashMap<String, i64>,
     /// MCP server names active for the session's project (#106).
     mcp_servers: Vec<String>,
+    /// Tool invocations per MCP server (#153). Empty + turn_count = 0 means
+    /// the row predates call tracking ("unknown", not "never called").
+    mcp_calls: HashMap<String, i64>,
+    /// Measured first-call context size (#152).
+    baseline_tokens: i64,
+    /// Real API-call count (#152).
+    turn_count: i64,
     ended_at: DateTime<Utc>,
+}
+
+impl From<SessionRow> for SessionOut {
+    fn from(r: SessionRow) -> Self {
+        SessionOut {
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
+            session_id: r.session_id,
+            repo: r.repo,
+            model: r.model,
+            input_tokens: r.input_tokens,
+            output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens,
+            cache_creation_tokens: r.cache_creation_tokens,
+            hook_overhead_tokens: r.hook_overhead_tokens,
+            hook_overhead_breakdown: r.hook_overhead_breakdown.0,
+            mcp_servers: r.mcp_servers.0,
+            mcp_calls: r.mcp_calls.0,
+            baseline_tokens: r.baseline_tokens,
+            turn_count: r.turn_count,
+            ended_at: r.ended_at,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -1206,8 +1324,10 @@ async fn list_sessions(
         r#"
         select session_id, repo, model,
                input_tokens, output_tokens,
+               cache_read_input_tokens as cache_read_tokens,
                cache_creation_input_tokens as cache_creation_tokens,
-               hook_overhead_tokens, hook_overhead_breakdown, mcp_servers, ended_at
+               hook_overhead_tokens, hook_overhead_breakdown, mcp_servers, mcp_calls,
+               baseline_tokens, turn_count, ended_at
         from token_logs
         where user_id = $1
           and ($2::timestamptz is null or ended_at >= $2)
@@ -1223,37 +1343,44 @@ async fn list_sessions(
     .await
     .map_err(internal)?;
 
-    let out = rows
-        .into_iter()
-        .map(|r| SessionOut {
-            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
-            session_id: r.session_id,
-            repo: r.repo,
-            model: r.model,
-            hook_overhead_tokens: r.hook_overhead_tokens,
-            hook_overhead_breakdown: r.hook_overhead_breakdown.0,
-            mcp_servers: r.mcp_servers.0,
-            ended_at: r.ended_at,
-        })
-        .collect();
-    Ok(Json(out))
+    Ok(Json(rows.into_iter().map(SessionOut::from).collect::<Vec<_>>()))
 }
 
 // ---- GET /v1/session/:id : one session + its plugin overhead breakdown (#102) -
+
+/// Session detail = list shape + the per-turn usage series for the Cost
+/// Anatomy chart (#152). The series is detail-only — 200 list rows × 360
+/// points would be needless payload.
+#[derive(Serialize)]
+struct SessionDetailOut {
+    #[serde(flatten)]
+    session: SessionOut,
+    /// [[input, cache_read, cache_creation, output], ...] per API call.
+    turn_usage: Vec<[i64; 4]>,
+}
+
+#[derive(sqlx::FromRow)]
+struct SessionDetailRow {
+    #[sqlx(flatten)]
+    session: SessionRow,
+    turn_usage: sqlx::types::Json<Vec<[i64; 4]>>,
+}
 
 async fn get_session(
     State(st): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<SessionOut>, (StatusCode, String)> {
+) -> Result<Json<SessionDetailOut>, (StatusCode, String)> {
     let (user_id, _) = auth_supabase_user(&st, &headers).await?;
 
-    let row: Option<SessionRow> = sqlx::query_as(
+    let row: Option<SessionDetailRow> = sqlx::query_as(
         r#"
         select session_id, repo, model,
                input_tokens, output_tokens,
+               cache_read_input_tokens as cache_read_tokens,
                cache_creation_input_tokens as cache_creation_tokens,
-               hook_overhead_tokens, hook_overhead_breakdown, mcp_servers, ended_at
+               hook_overhead_tokens, hook_overhead_breakdown, mcp_servers, mcp_calls,
+               baseline_tokens, turn_count, turn_usage, ended_at
         from token_logs
         where user_id = $1 and session_id = $2
         "#,
@@ -1265,15 +1392,9 @@ async fn get_session(
     .map_err(internal)?;
 
     let r = row.ok_or((StatusCode::NOT_FOUND, "session not found".to_string()))?;
-    Ok(Json(SessionOut {
-        total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
-        session_id: r.session_id,
-        repo: r.repo,
-        model: r.model,
-        hook_overhead_tokens: r.hook_overhead_tokens,
-        hook_overhead_breakdown: r.hook_overhead_breakdown.0,
-        mcp_servers: r.mcp_servers.0,
-        ended_at: r.ended_at,
+    Ok(Json(SessionDetailOut {
+        session: SessionOut::from(r.session),
+        turn_usage: r.turn_usage.0,
     }))
 }
 

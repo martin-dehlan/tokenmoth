@@ -407,7 +407,9 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
 /// `ended_at` (a timestamp, no content) is included only for backfill, so a
 /// re-ingest preserves the session's real end time instead of `now()`.
 /// `mcp_servers` is the list of MCP server *names* active for the project (#106) —
-/// names only, never paths or schemas.
+/// names only, never paths or schemas. `turn_usage`/`baseline_tokens`/`turn_count`
+/// are pure token counts per API call (#152); `mcp_calls` is invocation counts
+/// keyed by server name (#153). Nothing here can carry content.
 fn telemetry_body(
     session_id: &str,
     repo: &str,
@@ -415,6 +417,10 @@ fn telemetry_body(
     ended_at: Option<&str>,
     mcp: &[String],
 ) -> Value {
+    // Baseline = the first API call's full context (input + cache_read +
+    // cache_creation) ≈ system prompt + tool/MCP schemas + hooks — measured,
+    // not estimated. Every later turn re-reads at least this much (#152).
+    let baseline = p.turns.first().map(|t| t[0] + t[1] + t[2]).unwrap_or(0);
     let mut body = json!({
         "session_id": session_id,
         // basename only — never the absolute cwd (no username / dir structure leak)
@@ -428,11 +434,40 @@ fn telemetry_body(
         "hook_overhead_tokens": p.overhead,
         "hook_overhead_breakdown": p.breakdown,
         "mcp_servers": mcp,
+        "mcp_calls": p.mcp_calls,
+        "baseline_tokens": baseline,
+        "turn_count": p.turns.len(),
+        "turn_usage": downsample_turns(&p.turns),
     });
     if let Some(ts) = ended_at {
         body["ended_at"] = json!(ts);
     }
     body
+}
+
+/// Cap the per-turn series so a 1000-call session still fits the API body
+/// limit: chunks of adjacent calls are averaged (shape-preserving — sums for
+/// the anatomy come from the session totals, not from this series).
+const MAX_TURN_POINTS: usize = 360;
+
+fn downsample_turns(turns: &[[i64; 4]]) -> Vec<[i64; 4]> {
+    if turns.len() <= MAX_TURN_POINTS {
+        return turns.to_vec();
+    }
+    let chunk = turns.len().div_ceil(MAX_TURN_POINTS);
+    turns
+        .chunks(chunk)
+        .map(|c| {
+            let n = c.len() as i64;
+            let mut s = [0i64; 4];
+            for t in c {
+                for (acc, v) in s.iter_mut().zip(t) {
+                    *acc += v;
+                }
+            }
+            s.map(|v| v / n)
+        })
+        .collect()
 }
 
 /// MCP server names active for a session's project. Claude Code keeps a per-project
@@ -476,6 +511,13 @@ struct Parsed {
     overhead: i64,
     /// Per-hook overhead tokens, keyed by `hookName` (#83).
     breakdown: HashMap<String, i64>,
+    /// Per-API-call usage `[input, cache_read, cache_creation, output]` in
+    /// transcript order — the raw material for the Cost Anatomy view (#152).
+    turns: Vec<[i64; 4]>,
+    /// Tool invocations per MCP server, parsed from `tool_use` names
+    /// (`mcp__<server>__<tool>`). Server segment only — never the tool name
+    /// or its input (#153).
+    mcp_calls: HashMap<String, i64>,
     model: Option<String>,
     /// Session id from the transcript (`sessionId`) — used by `backfill` to
     /// upsert the right row. Empty on a live report (id comes from the hook).
@@ -502,10 +544,33 @@ fn parse_transcript(content: &str, resolver: &PluginResolver) -> Parsed {
         };
         let msg = v.get("message");
         if let Some(u) = msg.and_then(|m| m.get("usage")) {
-            p.input += as_i64(u, "input_tokens");
-            p.output += as_i64(u, "output_tokens");
-            p.cread += as_i64(u, "cache_read_input_tokens");
-            p.ccreate += as_i64(u, "cache_creation_input_tokens");
+            let (i, o, cr, cc) = (
+                as_i64(u, "input_tokens"),
+                as_i64(u, "output_tokens"),
+                as_i64(u, "cache_read_input_tokens"),
+                as_i64(u, "cache_creation_input_tokens"),
+            );
+            p.input += i;
+            p.output += o;
+            p.cread += cr;
+            p.ccreate += cc;
+            p.turns.push([i, cr, cc, o]);
+        }
+        // Count MCP tool invocations: assistant content carries `tool_use`
+        // blocks named `mcp__<server>__<tool>`. PRIVACY: only the server
+        // segment is kept — never the tool name, input, or result (#153).
+        if let Some(content) = msg.and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+            for item in content {
+                if item.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
+                    continue;
+                }
+                let Some(name) = item.get("name").and_then(|n| n.as_str()) else { continue };
+                let Some(rest) = name.strip_prefix("mcp__") else { continue };
+                let server = rest.split("__").next().unwrap_or(rest);
+                if !server.is_empty() {
+                    *p.mcp_calls.entry(server.to_string()).or_insert(0) += 1;
+                }
+            }
         }
         if let Some(m) = msg.and_then(|m| m.get("model")).and_then(|x| x.as_str()) {
             // Skip Claude Code's pseudo-models (`<synthetic>`, `<unknown>`) so a
@@ -767,6 +832,35 @@ mod tests {
         assert_eq!(p.overhead, 2);
         assert_eq!(p.breakdown.get("caveman"), Some(&2));
         assert_eq!(p.model.as_deref(), Some("claude-opus-4-8"));
+        // per-turn series in transcript order: [input, cache_read, cache_creation, output]
+        assert_eq!(p.turns, vec![[100, 10, 1, 200], [50, 5, 2, 80]]);
+    }
+
+    #[test]
+    fn counts_mcp_tool_calls_by_server_only() {
+        let t = concat!(
+            r#"{"message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__vercel__list_projects","input":{"secret":"never-sent"}},{"type":"tool_use","name":"mcp__vercel__get_project"},{"type":"text","text":"hi"}]}}"#,
+            "\n",
+            r#"{"message":{"role":"assistant","content":[{"type":"tool_use","name":"mcp__figma__get_screenshot"},{"type":"tool_use","name":"Bash"}]}}"#,
+        );
+        let p = parse_transcript(t, &PluginResolver::default());
+        assert_eq!(p.mcp_calls.get("vercel"), Some(&2));
+        assert_eq!(p.mcp_calls.get("figma"), Some(&1));
+        // built-in tools (no mcp__ prefix) are never counted
+        assert_eq!(p.mcp_calls.len(), 2);
+    }
+
+    #[test]
+    fn downsample_keeps_short_series_and_averages_long_ones() {
+        let short = vec![[1, 2, 3, 4]; 10];
+        assert_eq!(downsample_turns(&short), short);
+
+        let long: Vec<[i64; 4]> = (0..720).map(|i| [i, 0, 0, 0]).collect();
+        let ds = downsample_turns(&long);
+        assert!(ds.len() <= MAX_TURN_POINTS);
+        // chunk of [0,1] averages to 0 (integer), [2,3] → 2, …
+        assert_eq!(ds[0], [0, 0, 0, 0]);
+        assert_eq!(ds[1], [2, 0, 0, 0]);
     }
 
     #[test]
@@ -906,6 +1000,8 @@ mod tests {
             ccreate: 4,
             overhead: 5,
             breakdown: HashMap::from([("SessionStart:startup".to_string(), 5)]),
+            turns: vec![[1, 3, 4, 2]],
+            mcp_calls: HashMap::from([("vercel".to_string(), 3)]),
             model: Some("claude-opus-4-8".to_string()),
             ..Default::default()
         };
@@ -919,17 +1015,21 @@ mod tests {
         assert_eq!(
             keys,
             [
+                "baseline_tokens",
                 "cache_creation_input_tokens",
                 "cache_read_input_tokens",
                 "hook_overhead_breakdown",
                 "hook_overhead_tokens",
                 "input_tokens",
+                "mcp_calls",
                 "mcp_servers",
                 "model",
                 "output_tokens",
                 "project_path",
                 "repo",
                 "session_id",
+                "turn_count",
+                "turn_usage",
             ]
         );
         // project_path must be the basename, never an absolute path.
@@ -937,6 +1037,13 @@ mod tests {
         assert!(!obj["project_path"].as_str().unwrap().contains('/'));
         // mcp_servers carries only names — no path separators.
         assert_eq!(obj["mcp_servers"], json!(["vercel"]));
+        // mcp_calls carries only {server: count} — numbers, no tool names/inputs.
+        assert_eq!(obj["mcp_calls"], json!({"vercel": 3}));
+        // baseline = first turn's input + cache_read + cache_creation.
+        assert_eq!(obj["baseline_tokens"], json!(8));
+        assert_eq!(obj["turn_count"], json!(1));
+        // turn_usage is pure numbers: [[input, cache_read, cache_creation, output]].
+        assert_eq!(obj["turn_usage"], json!([[1, 3, 4, 2]]));
     }
 
     #[test]
