@@ -5,7 +5,7 @@ import ModelBreakdown from "@/components/ModelBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import Landing from "@/components/Landing";
-import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel } from "@/lib/data";
+import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -99,20 +99,26 @@ export default async function Dashboard({
             </div>
           </section>
 
-          {/* CHART */}
+          {/* CHART — zero-filled across the full window so the x-axis always
+              spans the selected range, not just where data happens to exist. */}
           <section className="px-8 py-6 border-t border-hair">
             {series.length > 0 ? (
-              <AnnotatedChart
-                series={[
-                  {
-                    name: since.endsWith("h") ? (since === "1h" || since === "5h" ? "tokens / min" : "tokens / hr") : "tokens / day",
-                    color: "#1a7f64",
-                    values: series.map((p) => p.totalTokens),
-                  },
-                ]}
-                xLabels={series.map((p) => fmtChartLabel(p.day, since))}
-                format={fmtTokens}
-              />
+              (() => {
+                const chartPoints = padSeriesToWindow(series, since);
+                return (
+                  <AnnotatedChart
+                    series={[
+                      {
+                        name: since.endsWith("h") ? (since === "1h" || since === "5h" ? "tokens / min" : "tokens / hr") : "tokens / day",
+                        color: "#1a7f64",
+                        values: chartPoints.map((p) => p.totalTokens),
+                      },
+                    ]}
+                    xLabels={chartPoints.map((p) => fmtChartLabel(p.day, since))}
+                    format={fmtTokens}
+                  />
+                );
+              })()
             ) : (
               <div className="text-[12px] text-faint py-10 text-center">
                 no activity in this window yet

@@ -133,6 +133,68 @@ export function fmtChartLabel(dayStr: string, since: string): string {
   return `${mm}-${dd}`;
 }
 
+// ---- chart window padding -------------------------------------------------
+// The backend groups the series by bucket and omits empty buckets, so the chart
+// x-axis only spanned the extent of the data (e.g. an 18-min burst looked like
+// the whole "5h" window). Zero-fill the series across the full selected window
+// for display so the axis always covers the real time range. "all" has no fixed
+// window and is returned unchanged. Mirrors the backend's grouping units
+// (1h/5h → minute, 12h/24h → hour, else day).
+
+const MINUTE = 60_000;
+const HOUR = 3_600_000;
+const DAY = 86_400_000;
+
+function bucketMs(since: string): number {
+  if (since === "1h" || since === "5h") return MINUTE;
+  if (since === "12h" || since === "24h") return HOUR;
+  return DAY;
+}
+
+// Window length in ms, or null for "all"/unbounded.
+function windowMs(since: string): number | null {
+  const m = /^(\d+)([hd])$/.exec(since);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return m[2] === "h" ? n * HOUR : n * DAY;
+}
+
+function emptyPoint(day: string): SeriesPoint {
+  return {
+    day,
+    sessions: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    totalTokens: 0,
+    costUsd: 0,
+  };
+}
+
+export function padSeriesToWindow(points: SeriesPoint[], since: string): SeriesPoint[] {
+  const win = windowMs(since);
+  if (win === null) return points; // "all" — keep the data extent
+  const step = bucketMs(since);
+  const now = Date.now();
+  const end = Math.floor(now / step) * step;
+  const start = Math.floor((now - win) / step) * step;
+
+  // Index existing buckets by their step-aligned epoch (backend buckets are
+  // already truncated to the unit, so this snaps cleanly).
+  const byBucket = new Map<number, SeriesPoint>();
+  for (const p of points) {
+    const t = Date.parse(p.day);
+    if (!Number.isNaN(t)) byBucket.set(Math.floor(t / step) * step, p);
+  }
+
+  const out: SeriesPoint[] = [];
+  for (let t = start; t <= end; t += step) {
+    out.push(byBucket.get(t) ?? emptyPoint(new Date(t).toISOString()));
+  }
+  return out;
+}
+
 // ---- demo fallback --------------------------------------------------------
 
 const PRICE = { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 } as const;
