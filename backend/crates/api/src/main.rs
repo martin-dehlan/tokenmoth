@@ -93,6 +93,11 @@ struct Telemetry {
     /// Tool invocations per MCP server name (#153). Counts only.
     #[serde(default)]
     mcp_calls: HashMap<String, i64>,
+    /// Per-model token totals [input, cache_read, cache_creation, output] keyed
+    /// by model name (#model-breakdown). Lets the breakdown show every model a
+    /// session used, not just the last-seen one. Names + counts only.
+    #[serde(default)]
+    model_usage: HashMap<String, [i64; 4]>,
     /// First API call's context size (input + cache_read + cache_creation) —
     /// the measured per-turn setup cost (#152).
     #[serde(default)]
@@ -261,6 +266,7 @@ async fn ingest(
         || t.hook_overhead_tokens < 0
         || t.baseline_tokens < 0
         || t.turn_count < 0
+        || t.model_usage.values().any(|v| v.iter().any(|&n| n < 0))
     {
         return Err((StatusCode::BAD_REQUEST, "token counts must be non-negative".to_string()));
     }
@@ -279,8 +285,8 @@ async fn ingest(
           (user_id, session_id, repo, project_path, input_tokens, output_tokens,
            cache_read_input_tokens, cache_creation_input_tokens, model, hook_overhead_tokens,
            hook_overhead_breakdown, ended_at, mcp_servers, mcp_calls, baseline_tokens,
-           turn_count, turn_usage)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, coalesce($12, now()), $13,$14,$15,$16,$17)
+           turn_count, turn_usage, model_usage)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, coalesce($12, now()), $13,$14,$15,$16,$17,$18)
         on conflict (session_id) do update set
            input_tokens                = excluded.input_tokens,
            output_tokens               = excluded.output_tokens,
@@ -295,6 +301,7 @@ async fn ingest(
            baseline_tokens              = excluded.baseline_tokens,
            turn_count                   = excluded.turn_count,
            turn_usage                   = excluded.turn_usage,
+           model_usage                  = excluded.model_usage,
            -- live reports ($12 NULL) → now() (unchanged); backfill keeps real end time
            ended_at                     = coalesce($12, now())
         "#,
@@ -322,6 +329,7 @@ async fn ingest(
     .bind(t.baseline_tokens)
     .bind(t.turn_count)
     .bind(sqlx::types::Json(&t.turn_usage))
+    .bind(sqlx::types::Json(&t.model_usage))
     .execute(&st.db)
     .await
     .map_err(internal)?;
@@ -851,6 +859,43 @@ async fn revoke_key(
 
 // ---- GET /v1/models : per-model rollup (#27) -------------------------------
 
+/// Per-model token rollup over a window. Binds $1 = user_id, $2 = cutoff.
+/// Reads the real per-model split from `model_usage` (#model-breakdown); rows
+/// from a CLI that predates it (model_usage '{}') fall back to the session-level
+/// `model` column so historical data isn't dropped. Shared by /v1/models and
+/// the dashboard so the two never diverge.
+const MODEL_ROLLUP_SQL: &str = r#"
+        with per_model as (
+            select e.key                        as model,
+                   (e.value->>0)::bigint        as input_tokens,
+                   (e.value->>1)::bigint        as cache_read_tokens,
+                   (e.value->>2)::bigint        as cache_creation_tokens,
+                   (e.value->>3)::bigint        as output_tokens,
+                   session_id
+            from token_logs
+                 cross join lateral jsonb_each(model_usage) as e
+            where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+                  and model_usage <> '{}'::jsonb
+            union all
+            select coalesce(nullif(model, ''), 'unknown'),
+                   input_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+                   output_tokens, session_id
+            from token_logs
+            where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
+                  and model_usage = '{}'::jsonb
+        )
+        select model,
+               count(distinct session_id)::bigint              as sessions,
+               coalesce(sum(input_tokens), 0)::bigint          as input_tokens,
+               coalesce(sum(output_tokens), 0)::bigint         as output_tokens,
+               coalesce(sum(cache_read_tokens), 0)::bigint     as cache_read_tokens,
+               coalesce(sum(cache_creation_tokens), 0)::bigint as cache_creation_tokens
+        from per_model
+        group by model
+        order by (coalesce(sum(input_tokens),0) + coalesce(sum(output_tokens),0)
+                + coalesce(sum(cache_creation_tokens),0)) desc
+"#;
+
 #[derive(sqlx::FromRow)]
 struct ModelRow {
     model: String,
@@ -883,19 +928,7 @@ async fn list_models(
         .ok_or((StatusCode::BAD_REQUEST, "invalid `since`".to_string()))?;
 
     let rows: Vec<ModelRow> = sqlx::query_as(
-        r#"
-        select coalesce(nullif(model, ''), 'unknown')            as model,
-               count(*)::bigint                                  as sessions,
-               coalesce(sum(input_tokens), 0)::bigint            as input_tokens,
-               coalesce(sum(output_tokens), 0)::bigint           as output_tokens,
-               coalesce(sum(cache_read_input_tokens), 0)::bigint as cache_read_tokens,
-               coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens
-        from token_logs
-        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
-        group by 1
-        order by (coalesce(sum(input_tokens),0) + coalesce(sum(output_tokens),0)
-                + coalesce(sum(cache_read_input_tokens),0) + coalesce(sum(cache_creation_input_tokens),0)) desc
-        "#,
+        MODEL_ROLLUP_SQL,
     )
     .bind(user_id)
     .bind(cutoff)
@@ -1108,19 +1141,7 @@ async fn dashboard(
 
     // 3) per-model rollups
     let model_rows: Vec<ModelRow> = sqlx::query_as(
-        r#"
-        select coalesce(nullif(model, ''), 'unknown')            as model,
-               count(*)::bigint                                  as sessions,
-               coalesce(sum(input_tokens), 0)::bigint            as input_tokens,
-               coalesce(sum(output_tokens), 0)::bigint           as output_tokens,
-               coalesce(sum(cache_read_input_tokens), 0)::bigint as cache_read_tokens,
-               coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens
-        from token_logs
-        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
-        group by 1
-        order by (coalesce(sum(input_tokens),0) + coalesce(sum(output_tokens),0)
-                + coalesce(sum(cache_read_input_tokens),0) + coalesce(sum(cache_creation_input_tokens),0)) desc
-        "#,
+        MODEL_ROLLUP_SQL,
     )
     .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
     // API-equivalent cost, priced per model (#72/#73), summed then rounded to cents.

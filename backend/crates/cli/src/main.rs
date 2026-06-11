@@ -409,7 +409,8 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
 /// `mcp_servers` is the list of MCP server *names* active for the project (#106) —
 /// names only, never paths or schemas. `turn_usage`/`baseline_tokens`/`turn_count`
 /// are pure token counts per API call (#152); `mcp_calls` is invocation counts
-/// keyed by server name (#153). Nothing here can carry content.
+/// keyed by server name (#153); `model_usage` is per-model token totals keyed by
+/// model name (#model-breakdown). Nothing here can carry content.
 fn telemetry_body(
     session_id: &str,
     repo: &str,
@@ -435,6 +436,7 @@ fn telemetry_body(
         "hook_overhead_breakdown": p.breakdown,
         "mcp_servers": mcp,
         "mcp_calls": p.mcp_calls,
+        "model_usage": p.model_usage,
         "baseline_tokens": baseline,
         "turn_count": p.turns.len(),
         "turn_usage": downsample_turns(&p.turns),
@@ -518,6 +520,12 @@ struct Parsed {
     /// (`mcp__<server>__<tool>`). Server segment only — never the tool name
     /// or its input (#153).
     mcp_calls: HashMap<String, i64>,
+    /// Per-model token totals `[input, cache_read, cache_creation, output]`,
+    /// keyed by model name. `model` below is only "last seen"; this captures
+    /// every model a session actually used (e.g. a Fable detour inside an Opus
+    /// session) so the breakdown isn't mis-attributed. Model ids are not
+    /// content — names + counts only.
+    model_usage: HashMap<String, [i64; 4]>,
     model: Option<String>,
     /// Session id from the transcript (`sessionId`) — used by `backfill` to
     /// upsert the right row. Empty on a live report (id comes from the hook).
@@ -555,6 +563,19 @@ fn parse_transcript(content: &str, resolver: &PluginResolver) -> Parsed {
             p.cread += cr;
             p.ccreate += cc;
             p.turns.push([i, cr, cc, o]);
+            // Attribute this call's tokens to the model that produced it (same
+            // message). Synthetic pseudo-models (`<synthetic>`) fold into
+            // "unknown" so per-model totals still sum to the session total.
+            let model = msg
+                .and_then(|m| m.get("model"))
+                .and_then(|x| x.as_str())
+                .filter(|m| !m.starts_with('<'))
+                .unwrap_or("unknown");
+            let e = p.model_usage.entry(model.to_string()).or_insert([0; 4]);
+            e[0] += i;
+            e[1] += cr;
+            e[2] += cc;
+            e[3] += o;
         }
         // Count MCP tool invocations: assistant content carries `tool_use`
         // blocks named `mcp__<server>__<tool>`. PRIVACY: only the server
@@ -834,6 +855,10 @@ mod tests {
         assert_eq!(p.model.as_deref(), Some("claude-opus-4-8"));
         // per-turn series in transcript order: [input, cache_read, cache_creation, output]
         assert_eq!(p.turns, vec![[100, 10, 1, 200], [50, 5, 2, 80]]);
+        // every model the session used is attributed separately — not just the
+        // last one — so a sonnet/fable detour inside an opus session is visible.
+        assert_eq!(p.model_usage.get("claude-sonnet-4-6"), Some(&[100, 10, 1, 200]));
+        assert_eq!(p.model_usage.get("claude-opus-4-8"), Some(&[50, 5, 2, 80]));
     }
 
     #[test]
@@ -1002,6 +1027,7 @@ mod tests {
             breakdown: HashMap::from([("SessionStart:startup".to_string(), 5)]),
             turns: vec![[1, 3, 4, 2]],
             mcp_calls: HashMap::from([("vercel".to_string(), 3)]),
+            model_usage: HashMap::from([("claude-opus-4-8".to_string(), [1, 3, 4, 2])]),
             model: Some("claude-opus-4-8".to_string()),
             ..Default::default()
         };
@@ -1024,6 +1050,7 @@ mod tests {
                 "mcp_calls",
                 "mcp_servers",
                 "model",
+                "model_usage",
                 "output_tokens",
                 "project_path",
                 "repo",
@@ -1039,6 +1066,8 @@ mod tests {
         assert_eq!(obj["mcp_servers"], json!(["vercel"]));
         // mcp_calls carries only {server: count} — numbers, no tool names/inputs.
         assert_eq!(obj["mcp_calls"], json!({"vercel": 3}));
+        // model_usage carries only {model: [counts]} — numbers + model ids, no content.
+        assert_eq!(obj["model_usage"], json!({"claude-opus-4-8": [1, 3, 4, 2]}));
         // baseline = first turn's input + cache_read + cache_creation.
         assert_eq!(obj["baseline_tokens"], json!(8));
         assert_eq!(obj["turn_count"], json!(1));
