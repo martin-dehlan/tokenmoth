@@ -5,7 +5,7 @@ export default function ModelBreakdown({ models }: { models: ModelUsage[] }) {
   return (
     <div className="flex flex-col gap-3">
       {models.map((m) => (
-        <div key={m.model} className="grid grid-cols-[10rem_1fr_5rem] items-center gap-4">
+        <div key={m.model} className="grid grid-cols-[6rem_1fr_4rem] sm:grid-cols-[10rem_1fr_5rem] items-center gap-3 sm:gap-4">
           <span className="font-mono text-[12px] text-ink truncate">{m.model}</span>
           <div className="track">
             <i
