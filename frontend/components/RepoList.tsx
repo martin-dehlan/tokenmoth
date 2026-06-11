@@ -67,7 +67,7 @@ export default function RepoList({ repos }: { repos: RepoUsage[] }) {
               onClick={() => setExpanded((v) => !v)}
               className="mt-3 w-full text-[10px] uppercase tracking-label text-muted hover:text-ink border-t border-hair pt-3 transition-colors"
             >
-              {expanded ? "show less" : `show ${hidden} more`}
+              {expanded ? "show less" : "show more"}
             </button>
           )}
         </>
