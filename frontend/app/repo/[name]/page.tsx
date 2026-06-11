@@ -3,12 +3,10 @@ import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import SessionList from "@/components/SessionList";
 import { fetchRepoSeries, fetchSessions, fmtTokens, fmtChartLabel, padSeriesToWindow, distinctDays } from "@/lib/data";
-import { PAGE_MAIN } from "@/lib/ui";
+import { PAGE_MAIN, WINDOWS } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-
-const WINDOWS = ["1h", "5h", "12h", "24h", "7d", "30d", "90d", "all"];
 
 export default async function RepoDetail({
   params,
@@ -18,7 +16,9 @@ export default async function RepoDetail({
   searchParams: { since?: string };
 }) {
   const name = decodeURIComponent(params.name);
-  const since = WINDOWS.includes(searchParams.since ?? "") ? searchParams.since! : "30d";
+  const since = (WINDOWS as readonly string[]).includes(searchParams.since ?? "")
+    ? searchParams.since!
+    : "30d";
   const supabase = createClient();
   const {
     data: { session },
@@ -44,10 +44,10 @@ export default async function RepoDetail({
   const chartPoints = padSeriesToWindow(points, since);
 
   const breakdown = [
-    { label: "input", v: sum.input, color: "#1a7f64" },
-    { label: "output", v: sum.output, color: "#1a4f7f" },
-    { label: "cache read", v: sum.cread, color: "#9a6200" },
-    { label: "cache write", v: sum.ccreate, color: "#6b7280" },
+    { label: "input", v: sum.input, color: "var(--chart-1)" },
+    { label: "output", v: sum.output, color: "var(--chart-2)" },
+    { label: "cache read", v: sum.cread, color: "var(--chart-3)" },
+    { label: "cache write", v: sum.ccreate, color: "var(--chart-4)" },
   ];
   const tmax = Math.max(1, ...breakdown.map((b) => b.v));
 
@@ -97,9 +97,9 @@ export default async function RepoDetail({
             {chartPoints.length > 0 ? (
               <AnnotatedChart
                 series={[
-                  { name: "total", color: "#1a7f64", values: chartPoints.map((p) => p.totalTokens) },
-                  { name: "input", color: "#1a4f7f", dashed: true, values: chartPoints.map((p) => p.inputTokens) },
-                  { name: "output", color: "#9a6200", dashed: true, values: chartPoints.map((p) => p.outputTokens) },
+                  { name: "total", color: "var(--chart-1)", values: chartPoints.map((p) => p.totalTokens) },
+                  { name: "input", color: "var(--chart-2)", dashed: true, values: chartPoints.map((p) => p.inputTokens) },
+                  { name: "output", color: "var(--chart-3)", dashed: true, values: chartPoints.map((p) => p.outputTokens) },
                 ]}
                 xLabels={chartPoints.map((p) => fmtChartLabel(p.day, since))}
                 format={fmtTokens}

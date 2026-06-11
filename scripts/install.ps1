@@ -30,12 +30,24 @@ $tmp = Join-Path $env:TEMP ('tokenmoth-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 try {
   $archive = Join-Path $tmp 'tokenmoth.tar.gz'
+  $shaFile = Join-Path $tmp 'tokenmoth.tar.gz.sha256'
   try {
     Invoke-WebRequest -Uri "$Base/tokenmoth-$target.tar.gz" -OutFile $archive -UseBasicParsing
+    Invoke-WebRequest -Uri "$Base/tokenmoth-$target.tar.gz.sha256" -OutFile $shaFile -UseBasicParsing
   } catch {
-    Write-Host "  $Base unreachable - falling back to S3..."
+    Write-Host "  $Base failed ($($_.Exception.Message)) - falling back to S3..."
     Invoke-WebRequest -Uri "$Fallback/tokenmoth-$target.tar.gz" -OutFile $archive -UseBasicParsing
+    Invoke-WebRequest -Uri "$Fallback/tokenmoth-$target.tar.gz.sha256" -OutFile $shaFile -UseBasicParsing
   }
+
+  # Verify the archive against the published .sha256 sidecar before extracting.
+  $expected = ((Get-Content -Path $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+  $actual = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+  if (-not $expected -or $actual -ne $expected) {
+    throw "tokenmoth: SHA-256 MISMATCH for tokenmoth-$target.tar.gz (expected $expected, got $actual). The download is corrupted or has been tampered with. Aborting."
+  }
+  Write-Host '  + sha256 verified'
+
   # tar ships with Windows 10 1803+ and extracts .tar.gz natively.
   tar -xzf $archive -C $tmp
   if ($LASTEXITCODE -ne 0) { throw 'tokenmoth: failed to extract archive (is `tar` available? Windows 10 1803+ required).' }

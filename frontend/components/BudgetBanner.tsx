@@ -7,9 +7,11 @@ import { fmtUsd, type Budget } from "@/lib/data";
 
 const PH = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
-// In-app budget alert (#30). Shows at 80% (warn) and 100% (over) of the monthly
-// budget, and emits a PostHog event once per (month, level) per browser session
-// so crossing a threshold is observable without spamming on every page load.
+// In-app budget feedback (#30). A budget that exists is always visible as a
+// slim progress track with month-to-date spend; at 80% (warn) and 100% (over)
+// it escalates to a prominent alert. Threshold crossings emit a PostHog event
+// once per (month, level) per browser session so they're observable without
+// spamming on every page load.
 export default function BudgetBanner({ budget }: { budget: Budget }) {
   const { pct, spendUsd, budgetUsd } = budget;
   const level = pct >= 100 ? "over" : pct >= 80 ? "warn" : null;
@@ -34,13 +36,43 @@ export default function BudgetBanner({ budget }: { budget: Budget }) {
     }
   }, [level, pct, spendUsd, budgetUsd]);
 
-  if (!level) return null;
+  // No budget configured — nothing to show.
+  if (budgetUsd <= 0) return null;
 
   const over = level === "over";
+  const fill = Math.min(100, Math.max(0, pct));
+  const fillColor = level ? "var(--warn)" : "var(--accent)";
+
+  // Below 80%: quiet confirmation that the budget is active — slim track plus
+  // spend/budget, no alert chrome.
+  if (!level) {
+    return (
+      <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-muted">
+        <span className="uppercase tracking-label text-faint">budget</span>
+        <div
+          className="track w-40 sm:w-56"
+          role="progressbar"
+          aria-valuenow={Math.round(pct)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="monthly budget used"
+        >
+          <i style={{ width: `${fill}%`, background: fillColor }} />
+        </div>
+        <span className="tabular-nums">
+          {fmtUsd(spendUsd)} of {fmtUsd(budgetUsd)} this month ({pct.toFixed(0)}%)
+        </span>
+        <Link href="/settings" className="underline hover:text-ink transition-colors">
+          adjust budget
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div
       role="alert"
-      className={`mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-btn border px-4 py-2.5 text-[12px] ${
+      className={`mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-btn border px-4 py-2.5 text-[12px] ${
         over ? "border-warn/50 bg-warn/10 text-warn" : "border-line bg-surface text-muted"
       }`}
     >
@@ -49,6 +81,9 @@ export default function BudgetBanner({ budget }: { budget: Budget }) {
         {over ? "Over budget" : "Approaching budget"} — {fmtUsd(spendUsd)} of {fmtUsd(budgetUsd)} this
         month ({pct.toFixed(0)}%)
       </span>
+      <div className="track w-32 sm:w-44">
+        <i style={{ width: `${fill}%`, background: fillColor }} />
+      </div>
       <Link href="/settings" className="underline hover:text-ink transition-colors">
         adjust budget
       </Link>

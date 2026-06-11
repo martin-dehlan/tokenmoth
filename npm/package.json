@@ -27,7 +27,8 @@
   },
   "files": [
     "bin/cli.js",
-    "install.js"
+    "install.js",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=16"

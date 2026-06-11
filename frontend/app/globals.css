@@ -10,8 +10,8 @@
   --canvas: #fbfbfa; /* warm off-white notebook canvas */
   --surface: #ffffff;
   --ink: #1f2328; /* near-black text */
-  --muted: #6b7280;
-  --faint: #9ca3af;
+  --muted: #4b5563;
+  --faint: #6b7280;
   --line: #d1d5db; /* control borders */
   --line-strong: #c4c9d0; /* solid bottom-edge shadow color */
   --line-soft: #e5e7eb; /* seg/table inner borders */
@@ -28,6 +28,13 @@
   --copper-soft: rgba(207, 106, 31, 0.1);
   --stone: #e6e5e2; /* landing desk */
   --shadow: rgba(0, 0, 0, 0.07);
+  /* Chart palette — cycled by series/instrument. Light theme = the original
+     teal / navy / amber / gray; .dark flips to brighter equivalents. */
+  --chart-1: #1a7f64; /* teal */
+  --chart-2: #1a4f7f; /* navy */
+  --chart-3: #9a6200; /* amber */
+  --chart-4: #6b7280; /* gray */
+  --chart-area: rgba(26, 127, 100, 0.05); /* fill under the main chart line */
 }
 
 .dark {
@@ -35,8 +42,8 @@
   --canvas: #15171b;
   --surface: #1d2024;
   --ink: #e7e8ea;
-  --muted: #9aa0a8;
-  --faint: #6b7280;
+  --muted: #aab1ba;
+  --faint: #8a919b;
   --line: #34383e;
   --line-strong: #3c414a;
   --line-soft: #2e3238;
@@ -53,6 +60,11 @@
   --copper-soft: rgba(217, 128, 58, 0.14);
   --stone: #1a1c20;
   --shadow: rgba(0, 0, 0, 0.45);
+  --chart-1: #34a888; /* brighter teal */
+  --chart-2: #6aa3da; /* brighter navy */
+  --chart-3: #d49a3a; /* brighter amber */
+  --chart-4: #9aa0a8; /* lighter gray */
+  --chart-area: rgba(52, 168, 136, 0.08);
 }
 
 html,

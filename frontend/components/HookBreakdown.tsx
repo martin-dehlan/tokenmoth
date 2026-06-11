@@ -11,7 +11,7 @@ export default function HookBreakdown({ hooks }: { hooks: HookOverhead[] }) {
             {h.hook}
           </span>
           <div className="track">
-            <i style={{ width: `${Math.round((h.tokens / max) * 100)}%`, background: "#9a6200" }} />
+            <i style={{ width: `${Math.round((h.tokens / max) * 100)}%`, background: "var(--chart-3)" }} />
           </div>
           <span className="font-mono text-[12px] text-muted tabular-nums text-right">
             {fmtTokens(h.tokens)}

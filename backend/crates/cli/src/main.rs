@@ -1,11 +1,14 @@
 //! tokenmoth-cli — installs the Claude Code hook and reports session token usage.
 //!
 //! Subcommands:
-//!   * `tokenmoth setup --key tf_...`  — deep-merges a SessionEnd hook into
-//!     ~/.claude/settings.json (or ./.claude with --local), preserving every
-//!     existing setting. The installed hook runs `report --detach`.
+//!   * `tokenmoth setup --key tf_...`  — stores the key in ~/.tokenmoth/credentials
+//!     (mode 0600) and deep-merges a SessionEnd hook into ~/.claude/settings.json
+//!     (or ./.claude with --local), preserving every existing setting. The installed
+//!     hook runs `report --detach` with NO key in argv — argv is visible in `ps`
+//!     and settings.json is often world-readable (audit fix).
 //!   * `tokenmoth uninstall`           — removes only tokenmoth's hook entry.
-//!   * `tokenmoth report --key tf_...` — invoked BY the hook. Reads the hook JSON
+//!   * `tokenmoth report`              — invoked BY the hook. Resolves the API key
+//!     (--key flag → TOKENMOTH_API_KEY env → ~/.tokenmoth/credentials), reads the hook JSON
 //!     from stdin, aggregates per-message `usage` from the session transcript
 //!     (the hook payload itself carries no token counts — audit finding 1),
 //!     derives the git repo name, and POSTs the aggregate. With `--detach` it
@@ -15,7 +18,7 @@
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -54,8 +57,10 @@ enum Cmd {
     },
     /// Invoked by the Claude Code hook: parse transcript + POST usage. Never errors out the session.
     Report {
+        /// Optional (kept for compatibility). Resolution order: this flag →
+        /// TOKENMOTH_API_KEY env var → ~/.tokenmoth/credentials.
         #[arg(long)]
-        key: String,
+        key: Option<String>,
         #[arg(long, default_value = DEFAULT_API)]
         api_url: String,
         /// Re-spawn in the background and return immediately (used by the installed hook).
@@ -99,18 +104,24 @@ enum Cmd {
 
 fn main() {
     let cli = Cli::parse();
+    // `report` runs inside a Claude Code hook and must NEVER fail the user's
+    // session → log + exit 0. Every other subcommand is run by a human or an
+    // install script and must exit non-zero on failure so callers can detect it.
+    let hook_invoked = matches!(cli.cmd, Cmd::Report { .. });
     let r = match &cli.cmd {
         Cmd::Setup { key, api_url, local } => cmd_setup(key, api_url, *local),
         Cmd::Uninstall { local } => cmd_uninstall(*local),
-        Cmd::Report { key, api_url, detach } => cmd_report(key, api_url, *detach),
+        Cmd::Report { key, api_url, detach } => cmd_report(key.as_deref(), api_url, *detach),
         Cmd::Backfill { key, api_url, dry_run, repo, since, yes, full } => {
             cmd_backfill(key, api_url, *dry_run, repo.as_deref(), since.as_deref(), *yes, *full)
         }
         Cmd::Mcp { key, api_url } => cmd_mcp(key, api_url),
     };
     if let Err(e) = r {
-        // A hook must never break the user's session — log to stderr and exit 0.
         eprintln!("tokenmoth: {e}");
+        if !hook_invoked {
+            std::process::exit(1);
+        }
     }
 }
 
@@ -133,25 +144,131 @@ fn load_settings(path: &PathBuf) -> anyhow::Result<Value> {
 }
 
 fn write_settings(path: &PathBuf, root: &Value) -> anyhow::Result<()> {
-    if let Some(p) = path.parent() {
-        std::fs::create_dir_all(p)?;
+    atomic_write(path, &(serde_json::to_string_pretty(root)? + "\n"), None)
+}
+
+/// Atomically replace `path`: write a temp file in the SAME directory (rename
+/// is only atomic within a filesystem), optionally chmod it, then rename over
+/// the target. A crash mid-write can never leave a truncated/corrupt target —
+/// this guards the user's ~/.claude/settings.json (audit fix). The temp file is
+/// removed on any failure.
+fn atomic_write(path: &Path, contents: &str, mode: Option<u32>) -> anyhow::Result<()> {
+    let dir = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    std::fs::create_dir_all(&dir)?;
+    let tmp = dir.join(format!(
+        ".{}.tmp.{}",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("tokenmoth"),
+        std::process::id()
+    ));
+    let result = (|| -> anyhow::Result<()> {
+        std::fs::write(&tmp, contents)?;
+        // Permissions go on the temp file BEFORE the rename, so the target is
+        // never observable with looser permissions (credentials file).
+        set_mode(&tmp, mode)?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
-    std::fs::write(path, serde_json::to_string_pretty(root)? + "\n")?;
+    result
+}
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: Option<u32>) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    match mode {
+        Some(m) => std::fs::set_permissions(path, std::fs::Permissions::from_mode(m)),
+        None => Ok(()),
+    }
+}
+
+#[cfg(not(unix))]
+fn set_mode(_path: &Path, _mode: Option<u32>) -> std::io::Result<()> {
     Ok(())
+}
+
+/// Single-quote a string for a POSIX shell when it contains anything outside a
+/// conservative safe set — macOS paths regularly contain spaces.
+fn shell_quote(s: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "/._-+:@%=,".contains(c);
+    if !s.is_empty() && s.chars().all(safe) {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', r"'\''"))
+    }
+}
+
+// ---- API key storage & resolution -------------------------------------------
+
+/// ~/.tokenmoth/credentials — holds the raw API key (first line), mode 0600.
+fn credentials_path() -> Option<PathBuf> {
+    Some(dirs::home_dir()?.join(".tokenmoth").join("credentials"))
+}
+
+/// Write the key to a credentials file, atomically and owner-readable only
+/// (0600 on unix) — the key must never sit in argv or world-readable JSON.
+fn write_credentials_file(path: &Path, key: &str) -> anyhow::Result<()> {
+    atomic_write(path, &format!("{key}\n"), Some(0o600))
+}
+
+/// Resolve the API key for `report`: `--key` flag (compatibility) →
+/// `TOKENMOTH_API_KEY` env var → `~/.tokenmoth/credentials`.
+fn resolve_key(flag: Option<&str>) -> Option<String> {
+    pick_key(
+        flag,
+        std::env::var("TOKENMOTH_API_KEY").ok().as_deref(),
+        credentials_path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .as_deref(),
+    )
+}
+
+/// Pure resolution-order core (unit-tested without touching env/home):
+/// flag → env → first line of the credentials file. Blank candidates are
+/// skipped; nothing found → None.
+fn pick_key(flag: Option<&str>, env: Option<&str>, file: Option<&str>) -> Option<String> {
+    for cand in [flag, env] {
+        if let Some(k) = cand.map(str::trim).filter(|k| !k.is_empty()) {
+            return Some(k.to_string());
+        }
+    }
+    file.and_then(|f| f.lines().next())
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .map(str::to_string)
 }
 
 fn cmd_setup(key: &str, api_url: &str, local: bool) -> anyhow::Result<()> {
     let path = settings_path(local)?;
     let mut root = load_settings(&path)?;
+
+    // The key lives in ~/.tokenmoth/credentials (0600) — NEVER in the hook
+    // command: argv shows up in `ps` and settings.json is often world-readable.
+    let cred = credentials_path().ok_or_else(|| anyhow::anyhow!("could not resolve home dir"))?;
+    write_credentials_file(&cred, key)?;
+
     // Use this binary's absolute path so the hook resolves regardless of the
     // PATH the Claude Code hook runner sees. Falls back to a bare `tokenmoth`.
+    // Shell-quoted: macOS paths regularly contain spaces.
     let bin = std::env::current_exe()
         .ok()
         .and_then(|p| p.to_str().map(str::to_string))
         .unwrap_or_else(|| "tokenmoth".to_string());
-    let command = format!("{bin} report --key {key} --api-url {api_url} --detach");
+    let command =
+        format!("{} report --api-url {} --detach", shell_quote(&bin), shell_quote(api_url));
 
-    if install_hook(&mut root, &command)? {
+    // Remove any existing tokenmoth groups first so a re-run upgrades an
+    // old-format hook (which embedded --key) to the new key-free command.
+    let before = root.clone();
+    uninstall_hook(&mut root);
+    install_hook(&mut root, &command)?;
+
+    println!("✓ API key saved to {} (mode 0600)", cred.display());
+    if root == before {
         println!("tokenmoth hooks already installed in {}", path.display());
         return Ok(());
     }
@@ -175,6 +292,11 @@ fn cmd_uninstall(local: bool) -> anyhow::Result<()> {
     }
     write_settings(&path, &root)?;
     println!("✓ removed tokenmoth hook from {}", path.display());
+    if let Some(cred) = credentials_path() {
+        if cred.exists() {
+            println!("  API key kept at {} — remove it with: rm {}", cred.display(), cred.display());
+        }
+    }
     Ok(())
 }
 
@@ -240,30 +362,38 @@ fn group_has_tokenmoth(group: &Value) -> bool {
             hs.iter().any(|h| {
                 h.get("command")
                     .and_then(|c| c.as_str())
-                    .map(|c| c.contains("tokenmoth report"))
+                    // Strip shell quotes so `'/path with space/tokenmoth' report`
+                    // (quoted binary) matches as well as the legacy unquoted form.
+                    .map(|c| c.replace(['\'', '"'], "").contains("tokenmoth report"))
                     .unwrap_or(false)
             })
         })
         .unwrap_or(false)
 }
 
-fn cmd_report(key: &str, api_url: &str, detach: bool) -> anyhow::Result<()> {
+fn cmd_report(key: Option<&str>, api_url: &str, detach: bool) -> anyhow::Result<()> {
     let mut buf = String::new();
     std::io::stdin().read_to_string(&mut buf)?;
 
+    // No key anywhere (flag → env → credentials file) → silent no-op: a hook
+    // must never break the user's session.
+    let Some(key) = resolve_key(key) else { return Ok(()) };
+
     if detach && std::env::var_os("TOKENMOTH_DETACHED").is_none() {
-        return spawn_detached(key, api_url, &buf);
+        return spawn_detached(&key, api_url, &buf);
     }
-    process_report(key, api_url, &buf)
+    process_report(&key, api_url, &buf)
 }
 
 /// Re-spawn `report` (without --detach) fully backgrounded, feeding the hook
 /// payload via its stdin, then return immediately. The orphaned child finishes
 /// the transcript parse + POST after the hook process has already exited.
+/// The key travels via env, not argv — argv is visible in `ps`.
 fn spawn_detached(key: &str, api_url: &str, payload: &str) -> anyhow::Result<()> {
     let exe = std::env::current_exe()?;
     let mut child = std::process::Command::new(exe)
-        .args(["report", "--key", key, "--api-url", api_url])
+        .args(["report", "--api-url", api_url])
+        .env("TOKENMOTH_API_KEY", key)
         .env("TOKENMOTH_DETACHED", "1")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
@@ -276,19 +406,34 @@ fn spawn_detached(key: &str, api_url: &str, payload: &str) -> anyhow::Result<()>
     Ok(())
 }
 
+/// The hook payload's `session_id`, or None when missing/blank — in which case
+/// the report is skipped instead of inventing a colliding "unknown" id.
+fn hook_session_id(hook: &Value) -> Option<String> {
+    hook.get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
     let hook: Value = serde_json::from_str(buf).unwrap_or_else(|_| json!({}));
-    let session_id = hook.get("session_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+    // No session id → skip the POST entirely. A defaulted "unknown" id collides
+    // globally server-side (every keyless session upserts ONE row). Silent
+    // success — hooks must never break a session (audit fix).
+    let Some(session_id) = hook_session_id(&hook) else { return Ok(()) };
     let cwd = hook.get("cwd").and_then(|v| v.as_str()).unwrap_or(".").to_string();
     let transcript_path = hook.get("transcript_path").and_then(|v| v.as_str());
 
-    let content = transcript_path
-        .and_then(|tp| std::fs::read_to_string(tp).ok())
-        .unwrap_or_default();
     // Aggregation semantics: SUM every message's usage across the session = total
     // tokens processed (incl. repeated cache reads). `model` = last seen. The
     // resolver attributes hook overhead to the owning plugin (scans local configs).
-    let p = parse_transcript(&content, &PluginResolver::load());
+    // Streamed line-by-line — transcripts reach hundreds of MB and the Stop hook
+    // fires every turn, so the file is never slurped into memory (audit fix).
+    let resolver = PluginResolver::load();
+    let p = transcript_path
+        .and_then(|tp| parse_transcript_file(Path::new(tp), &resolver))
+        .unwrap_or_default();
 
     // Prefer the real git repo the session worked in over the launch cwd (#109).
     let repo = resolve_repo(Some(&cwd), &p.cwd_counts);
@@ -378,11 +523,10 @@ fn cmd_backfill(
     let mut best: HashMap<String, Backfilled> = HashMap::new();
     let mut skipped = 0u32;
     for path in &transcripts {
-        let Ok(content) = std::fs::read_to_string(path) else {
+        let Some(p) = parse_transcript_file(path, &resolver) else {
             skipped += 1;
             continue;
         };
-        let p = parse_transcript(&content, &resolver);
         let Some(session_id) = p.session_id.clone() else {
             skipped += 1; // no session id → can't upsert the right row
             continue;
@@ -505,11 +649,7 @@ fn write_cutoff(api_url: &str, ts: &str) -> anyhow::Result<()> {
     if let Some(obj) = v.as_object_mut() {
         obj.insert(api_url.to_string(), json!(ts));
     }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(&path, serde_json::to_string_pretty(&v)? + "\n")?;
-    Ok(())
+    atomic_write(&path, &(serde_json::to_string_pretty(&v)? + "\n"), None)
 }
 
 /// Prompt y/N on the terminal. Any non-affirmative answer (incl. EOF) → false.
@@ -584,7 +724,6 @@ fn retry_after(res: &reqwest::blocking::Response) -> Option<Duration> {
 /// line on stdin, one response per line on stdout. ALL diagnostics go to stderr;
 /// stdout is the protocol channel and must carry nothing but JSON-RPC.
 fn cmd_mcp(key: &str, api_url: &str) -> anyhow::Result<()> {
-    use std::io::BufRead;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()?;
@@ -865,14 +1004,32 @@ struct Parsed {
     last_ts: Option<String>,
 }
 
+/// Open and stream-parse a transcript file. None if the file can't be opened
+/// (lets backfill count it as skipped; the live report treats it as empty).
+fn parse_transcript_file(path: &Path, resolver: &PluginResolver) -> Option<Parsed> {
+    let f = std::fs::File::open(path).ok()?;
+    Some(parse_transcript_reader(BufReader::new(f), resolver))
+}
+
+/// In-memory convenience wrapper for the test-suite (same semantics as the
+/// streaming reader — that's the point).
+#[cfg(test)]
+fn parse_transcript(content: &str, resolver: &PluginResolver) -> Parsed {
+    parse_transcript_reader(content.as_bytes(), resolver)
+}
+
 /// Sum per-message `usage` across a transcript JSONL, plus estimate hook/plugin
 /// overhead from `attachment` entries that carry a `hookEvent` + injected
 /// `content` (SessionStart plugins, MCP context, PreToolUse hooks, …), attributed
 /// per `hookName`. Token estimate ≈ content length / 4.
-fn parse_transcript(content: &str, resolver: &PluginResolver) -> Parsed {
+/// STREAMING: consumes one line at a time — transcripts reach hundreds of MB and
+/// the Stop hook fires every turn, so the file must never be slurped whole.
+/// Malformed/unreadable lines are skipped, as before.
+fn parse_transcript_reader<R: BufRead>(reader: R, resolver: &PluginResolver) -> Parsed {
     let mut p = Parsed::default();
-    for line in content.lines() {
-        let v: Value = match serde_json::from_str(line) {
+    for line in reader.lines() {
+        let Ok(line) = line else { continue }; // e.g. invalid UTF-8 → skip line
+        let v: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(_) => continue,
         };
@@ -1477,6 +1634,103 @@ mod tests {
         );
         let p = parse_transcript(t, &PluginResolver::default());
         assert_eq!(p.model.as_deref(), Some("claude-opus-4-8"));
+    }
+
+    #[test]
+    fn key_resolution_order_flag_env_file() {
+        // flag beats env beats file
+        assert_eq!(pick_key(Some("k_flag"), Some("k_env"), Some("k_file")), Some("k_flag".into()));
+        assert_eq!(pick_key(None, Some("k_env"), Some("k_file")), Some("k_env".into()));
+        assert_eq!(pick_key(None, None, Some("k_file\n")), Some("k_file".into()));
+        // file: first line only, trimmed (future-proofs extra lines)
+        assert_eq!(pick_key(None, None, Some(" tm_abc \nextra")), Some("tm_abc".into()));
+        // blank candidates fall through instead of winning
+        assert_eq!(pick_key(Some("  "), Some(""), Some("k_file")), Some("k_file".into()));
+        // nothing anywhere → None (report becomes a silent no-op)
+        assert_eq!(pick_key(None, None, None), None);
+        assert_eq!(pick_key(None, None, Some(" \n")), None);
+    }
+
+    #[test]
+    fn atomic_write_leaves_no_temp_file_and_replaces_content() {
+        let dir = std::env::temp_dir().join(format!("tm_atomic_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("settings.json");
+
+        write_settings(&path, &json!({"a": 1})).unwrap();
+        // overwrite an existing target (the crash-sensitive case)
+        write_settings(&path, &json!({"a": 2})).unwrap();
+
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["a"], 2);
+        // temp file is gone after success — only the target remains
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["settings.json"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn credentials_file_is_0600_and_no_temp_left() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("tm_cred_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("credentials");
+
+        write_credentials_file(&path, "tm_secret").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "tm_secret\n");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        // overwrite keeps the tight mode and leaves no temp file
+        write_credentials_file(&path, "tm_other").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["credentials"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_or_blank_session_id_yields_none() {
+        // None → process_report skips the POST instead of sending "unknown".
+        assert_eq!(hook_session_id(&json!({})), None);
+        assert_eq!(hook_session_id(&json!({"session_id": ""})), None);
+        assert_eq!(hook_session_id(&json!({"session_id": "   "})), None);
+        assert_eq!(hook_session_id(&json!({"session_id": null})), None);
+        assert_eq!(hook_session_id(&json!({"session_id": "abc-123"})), Some("abc-123".into()));
+    }
+
+    #[test]
+    fn shell_quote_only_when_needed() {
+        assert_eq!(shell_quote("/usr/local/bin/tokenmoth"), "/usr/local/bin/tokenmoth");
+        assert_eq!(shell_quote("https://api.tokenmoth.dev"), "https://api.tokenmoth.dev");
+        assert_eq!(
+            shell_quote("/Applications/My Tools/tokenmoth"),
+            "'/Applications/My Tools/tokenmoth'"
+        );
+        // embedded single quote is escaped the POSIX way
+        assert_eq!(shell_quote("a'b"), r"'a'\''b'");
+    }
+
+    #[test]
+    fn detects_tokenmoth_hook_with_quoted_binary_path() {
+        let quoted = json!({ "hooks": [ { "type": "command",
+            "command": "'/Applications/My Tools/tokenmoth' report --api-url u --detach" } ] });
+        assert!(group_has_tokenmoth(&quoted));
+        // legacy unquoted form (with inline key) still detected → uninstall/upgrade works
+        let legacy = json!({ "hooks": [ { "type": "command",
+            "command": "/usr/local/bin/tokenmoth report --key tm_x --api-url u --detach" } ] });
+        assert!(group_has_tokenmoth(&legacy));
+        let other = json!({ "hooks": [ { "type": "command", "command": "echo keep" } ] });
+        assert!(!group_has_tokenmoth(&other));
     }
 
     #[test]

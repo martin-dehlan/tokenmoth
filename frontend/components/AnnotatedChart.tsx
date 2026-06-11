@@ -82,16 +82,27 @@ export default function AnnotatedChart({
         width="100%"
         preserveAspectRatio="xMidYMid meet"
         style={{ display: "block" }}
+        role="img"
+        aria-label={`line chart of ${series.map((s) => s.name).join(", ")}${
+          xLabels.length > 0 ? ` from ${xLabels[0]} to ${xLabels[xLabels.length - 1]}` : ""
+        }`}
       >
         {/* gridlines + floating y labels */}
         {grid.map((gv, i) => (
           <g key={i}>
-            <line x1={padL} x2={W - padR} y1={y(gv)} y2={y(gv)} stroke="#ececee" strokeWidth={0.5} />
+            <line
+              x1={padL}
+              x2={W - padR}
+              y1={y(gv)}
+              y2={y(gv)}
+              stroke="var(--hair)"
+              strokeWidth={0.5}
+            />
             <text
               x={padL + 2}
               y={y(gv) - 3}
               fontSize={10}
-              fill="#9ca3af"
+              fill="var(--faint)"
               fontFamily="var(--font-mono), monospace"
             >
               {format(gv)}
@@ -100,7 +111,7 @@ export default function AnnotatedChart({
         ))}
 
         {/* area under main line */}
-        {areaPath && <path d={areaPath} fill="rgba(26,127,100,0.05)" stroke="none" />}
+        {areaPath && <path d={areaPath} fill="var(--chart-area)" stroke="none" />}
 
         {/* peak callout — skip when the window is entirely empty (no "peak 0") */}
         {main && n > 1 && main.values[spikeI] > 0 && (
@@ -110,11 +121,16 @@ export default function AnnotatedChart({
               x2={x(spikeI)}
               y1={y(main.values[spikeI])}
               y2={H - padB}
-              stroke="#9ca3af"
+              stroke="var(--faint)"
               strokeWidth={0.75}
               strokeDasharray="3 3"
             />
-            <text x={x(spikeI) + 4} y={y(main.values[spikeI]) - 7} fontSize={10} fill="#6b7280">
+            <text
+              x={x(spikeI) + 4}
+              y={y(main.values[spikeI]) - 7}
+              fontSize={10}
+              fill="var(--muted)"
+            >
               peak {format(main.values[spikeI])}
             </text>
           </g>

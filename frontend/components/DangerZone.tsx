@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-// Account data export + deletion (DSGVO Art. 15/20 + Art. 17, #116).
+// Account data export + deletion (GDPR Art. 15/20 + Art. 17, #116).
 export default function DangerZone() {
   const router = useRouter();
   const [confirm, setConfirm] = useState("");
@@ -17,25 +17,27 @@ export default function DangerZone() {
       const r = await fetch("/api/account", { method: "DELETE" });
       if (r.status !== 204) {
         const body = await r.json().catch(() => ({}));
-        throw new Error(body.error ?? `Löschen fehlgeschlagen (${r.status})`);
+        throw new Error(body.error ?? `Deletion failed (${r.status})`);
       }
       router.push("/");
       router.refresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Löschen fehlgeschlagen");
+      setErr(e instanceof Error ? e.message : "Deletion failed");
       setBusy(false);
     }
   }
 
-  const armed = confirm.trim().toUpperCase() === "LÖSCHEN";
+  // "LÖSCHEN" is still accepted for users who saw the old German prompt.
+  const token = confirm.trim().toUpperCase();
+  const armed = token === "DELETE" || token === "LÖSCHEN";
 
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h3 className="text-[12px] font-medium text-ink mb-1">Deine Daten exportieren</h3>
+        <h3 className="text-[12px] font-medium text-ink mb-1">Export your data</h3>
         <p className="text-[12px] text-muted mb-3">
-          Lade alle erfassten Sessions als CSV oder JSON herunter (Auskunft &
-          Datenübertragbarkeit, Art. 15/20 DSGVO).
+          Download all recorded sessions as CSV or JSON (right of access &amp; data portability,
+          GDPR Art. 15/20).
         </p>
         <div className="flex gap-2">
           <a href="/api/export?format=csv&since=all" download className="btn text-muted">
@@ -48,16 +50,16 @@ export default function DangerZone() {
       </div>
 
       <div className="border-t border-hair pt-5">
-        <h3 className="text-[12px] font-medium text-warn mb-1">Account löschen</h3>
+        <h3 className="text-[12px] font-medium text-warn mb-1">Delete account</h3>
         <p className="text-[12px] text-muted mb-3">
-          Löscht dein Konto und alle zugehörigen Nutzungsdaten unwiderruflich (Art. 17 DSGVO).
-          Tippe <span className="font-mono text-ink">LÖSCHEN</span> zur Bestätigung.
+          Permanently deletes your account and all associated usage data (GDPR Art. 17). Type{" "}
+          <span className="font-mono text-ink">DELETE</span> to confirm.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            placeholder="LÖSCHEN"
+            placeholder="DELETE"
             className="rounded-btn border border-line bg-canvas px-3 py-1.5 text-[12px] text-ink font-mono w-36 outline-none focus:border-warn"
           />
           <button
@@ -66,7 +68,7 @@ export default function DangerZone() {
             className="btn disabled:opacity-50"
             style={armed && !busy ? { background: "var(--warn)", borderColor: "var(--warn)", color: "#fff" } : undefined}
           >
-            {busy ? "lösche…" : "Account endgültig löschen"}
+            {busy ? "deleting…" : "Delete account permanently"}
           </button>
         </div>
         {err && <p className="mt-2 text-[11px] text-warn">{err}</p>}

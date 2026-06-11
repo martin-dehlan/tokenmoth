@@ -156,7 +156,7 @@ export default function KeyManager() {
                     revoke
                   </button>
                 ) : (
-                  <span className="tag" style={{ color: "#9ca3af", background: "rgba(156,163,175,0.1)" }}>
+                  <span className="tag" style={{ color: "var(--faint)", background: "var(--raise)" }}>
                     revoked
                   </span>
                 )}

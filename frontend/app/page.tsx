@@ -8,19 +8,19 @@ import Optimizer from "@/components/Optimizer";
 import Landing from "@/components/Landing";
 import BudgetBanner from "@/components/BudgetBanner";
 import { fetchDashboard, fetchBudget, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow, chartUnitLabel, distinctDays } from "@/lib/data";
-import { PAGE_MAIN } from "@/lib/ui";
+import { PAGE_MAIN, WINDOWS } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-
-const WINDOWS = ["1h", "5h", "12h", "24h", "7d", "30d", "90d", "all"];
 
 export default async function Dashboard({
   searchParams,
 }: {
   searchParams: { since?: string };
 }) {
-  const since = WINDOWS.includes(searchParams.since ?? "") ? searchParams.since! : "30d";
+  const since = (WINDOWS as readonly string[]).includes(searchParams.since ?? "")
+    ? searchParams.since!
+    : "30d";
   const supabase = createClient();
   const {
     data: { session },
@@ -32,11 +32,41 @@ export default async function Dashboard({
 
   const token = session.access_token;
 
+  // Dashboard + budget are independent — fetch them in parallel. (Monthly
+  // budget is window-independent: always the current calendar month.)
+  const [dashboard, budget] = await Promise.all([fetchDashboard(token, since), fetchBudget(token)]);
   const { repos, series, models, trends, apiCostUsd, overheadByHook, mcpUsage, avgBaselineTokens, source, error } =
-    await fetchDashboard(token, since);
+    dashboard;
   const live = source === "live";
-  // Monthly budget is window-independent (always current calendar month).
-  const budget = await fetchBudget(token);
+
+  // Signed-in users never see demo data: if the API can't be reached, say so
+  // explicitly instead of rendering fake numbers.
+  if (source === "error") {
+    return (
+      <>
+        <TopRail active="usage" since={since} />
+        <main className={PAGE_MAIN}>
+          <div
+            role="alert"
+            className="my-7 rounded-surface border border-line bg-surface shadow-surface px-8 py-10 text-center"
+          >
+            <div className="text-[13px] font-medium text-warn mb-2">
+              We couldn&apos;t reach the API
+            </div>
+            <p className="text-[12px] text-muted mb-1">
+              Your usage data couldn&apos;t be loaded right now{error ? ` (${error})` : ""}.
+            </p>
+            <p className="text-[12px] text-muted mb-5">
+              Your data is safe — this is just a connection problem. Try reloading in a moment.
+            </p>
+            <a href={`/?since=${encodeURIComponent(since)}`} className="btn btn-accent">
+              Retry
+            </a>
+          </div>
+        </main>
+      </>
+    );
+  }
 
   const grandTokens = repos.reduce((a, r) => a + r.totalTokens, 0);
   const grandSessions = repos.reduce((a, r) => a + r.sessions, 0);
@@ -59,8 +89,8 @@ export default async function Dashboard({
         {!live && (
           <div className="mt-5 text-[11px] text-warn flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-warn inline-block" />
-            demo mode — {error ?? "no live connection"}. set TOKENMOTH_API_URL + TOKENMOTH_API_KEY to
-            go live.
+            demo mode — these are sample numbers, not your usage. sign in and install the CLI to
+            see live data.
           </div>
         )}
 
@@ -122,7 +152,7 @@ export default async function Dashboard({
                   series={[
                     {
                       name: chartUnitLabel(since),
-                      color: "#1a7f64",
+                      color: "var(--chart-1)",
                       values: chartPoints.map((p) => p.totalTokens),
                     },
                   ]}
