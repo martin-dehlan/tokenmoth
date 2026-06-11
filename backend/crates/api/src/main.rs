@@ -191,6 +191,7 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/keys", get(list_keys).post(create_key))
         .route("/v1/keys/:id/revoke", post(revoke_key))
         .route("/v1/me", get(me).delete(delete_me))
+        .route("/v1/budget", get(get_budget).put(put_budget))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
@@ -1568,6 +1569,78 @@ async fn delete_me(
 
 /// Validate a Supabase JWT (ES256 via JWKS, or legacy HS256 via the secret) and
 /// resolve it to a local `users.id`, creating/linking the user on first sight.
+// ---- GET/PUT /v1/budget : per-user monthly budget + month-to-date spend (#30)
+
+#[derive(Serialize)]
+struct BudgetOut {
+    budget_usd: f64,
+    /// Month-to-date spend (calendar month, server clock).
+    spend_usd: f64,
+    /// spend / budget * 100, one decimal. 0 when no budget set.
+    pct: f64,
+}
+
+async fn get_budget(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<BudgetOut>, (StatusCode, String)> {
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
+    let budget: f64 = sqlx::query_scalar("select budget_usd from users where id = $1")
+        .bind(user_id)
+        .fetch_one(&st.db)
+        .await
+        .map_err(internal)?;
+    // Month-to-date token sums → cost via the same flat estimator as the
+    // dashboard, so the banner and the hero figure can't disagree.
+    let row: (i64, i64, i64, i64) = sqlx::query_as(
+        r#"
+        select coalesce(sum(input_tokens),0)::bigint,
+               coalesce(sum(output_tokens),0)::bigint,
+               coalesce(sum(cache_read_input_tokens),0)::bigint,
+               coalesce(sum(cache_creation_input_tokens),0)::bigint
+        from token_logs
+        where user_id = $1 and ended_at >= date_trunc('month', now())
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(&st.db)
+    .await
+    .map_err(internal)?;
+    let spend = cost_usd(row.0, row.1, row.2, row.3);
+    let pct = if budget > 0.0 {
+        (spend / budget * 1000.0).round() / 10.0
+    } else {
+        0.0
+    };
+    Ok(Json(BudgetOut { budget_usd: budget, spend_usd: spend, pct }))
+}
+
+#[derive(Deserialize)]
+struct BudgetIn {
+    budget_usd: f64,
+}
+
+async fn put_budget(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<BudgetIn>,
+) -> Result<Json<BudgetOut>, (StatusCode, String)> {
+    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
+    if !b.budget_usd.is_finite() || b.budget_usd < 0.0 || b.budget_usd > 1_000_000.0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "budget_usd must be a finite value between 0 and 1000000".to_string(),
+        ));
+    }
+    sqlx::query("update users set budget_usd = $1 where id = $2")
+        .bind(b.budget_usd)
+        .bind(user_id)
+        .execute(&st.db)
+        .await
+        .map_err(internal)?;
+    get_budget(State(st), headers).await
+}
+
 async fn auth_supabase_user(
     st: &AppState,
     headers: &HeaderMap,
