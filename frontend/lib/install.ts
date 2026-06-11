@@ -16,13 +16,6 @@ const BASE = "https://get.tokenmoth.com";
 const CURL = `curl -fsSL ${BASE}/install.sh | sh`;
 const PWSH = `irm ${BASE}/install.ps1 | iex`;
 
-// Cross-platform one-liners. The npm path is the lowest-friction option for the
-// Claude Code crowd — everyone already has Node/npm (Claude Code ships over
-// npm), no compile, no toolchain. Homebrew is the trusted Mac/Linux default.
-export const NPM = "npm install -g tokenmoth";
-export const NPX = "npx tokenmoth";
-export const BREW = "brew install martin-dehlan/tokenmoth/tokenmoth";
-
 // How the user installs. npm is the default — OS-agnostic, no toolchain, and
 // every Claude Code user already has Node. `script` is the curl|sh / irm path
 // for people without Node (and is OS-specific).
