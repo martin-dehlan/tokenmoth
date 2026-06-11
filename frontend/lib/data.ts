@@ -448,6 +448,15 @@ export async function fetchTrends(accessToken: string, since = "30d"): Promise<T
 
 export type HookOverhead = { hook: string; tokens: number; sessions: number };
 
+// Loaded-vs-called rollup per MCP server (#153). Only sessions ingested by a
+// call-tracking CLI count — older rows can't tell "never called" from "unknown".
+export type McpUsage = {
+  server: string;
+  sessionsLoaded: number;
+  sessionsCalled: number;
+  calls: number;
+};
+
 export type DashboardData = {
   repos: RepoUsage[];
   series: SeriesPoint[];
@@ -455,6 +464,8 @@ export type DashboardData = {
   trends: Trends | null;
   apiCostUsd: number; // API pay-as-you-go equivalent for the window (#72)
   overheadByHook: HookOverhead[]; // overhead tokens per plugin/hook (#85)
+  mcpUsage: McpUsage[]; // loaded vs called per MCP server (#153)
+  avgBaselineTokens: number; // avg measured first-call context (#152)
   source: "live" | "demo";
   error?: string;
 };
@@ -471,6 +482,12 @@ function demoDashboard(since: string, error: string): DashboardData {
       { hook: "caveman", tokens: 3100, sessions: 18 },
       { hook: "PreToolUse:Bash", tokens: 900, sessions: 12 },
     ],
+    mcpUsage: [
+      { server: "supabase", sessionsLoaded: 18, sessionsCalled: 11, calls: 64 },
+      { server: "vercel", sessionsLoaded: 18, sessionsCalled: 6, calls: 19 },
+      { server: "figma", sessionsLoaded: 14, sessionsCalled: 0, calls: 0 },
+    ],
+    avgBaselineTokens: 38_000,
     source: "demo",
     error,
   };
@@ -518,6 +535,17 @@ export async function fetchDashboard(accessToken: string, since = "30d"): Promis
             sessions: h.sessions,
           }))
         : [],
+      mcpUsage: Array.isArray(d.mcp_usage)
+        ? d.mcp_usage.map(
+            (m: { server: string; sessions_loaded: number; sessions_called: number; calls: number }) => ({
+              server: m.server,
+              sessionsLoaded: m.sessions_loaded,
+              sessionsCalled: m.sessions_called,
+              calls: m.calls,
+            }),
+          )
+        : [],
+      avgBaselineTokens: typeof d.avg_baseline_tokens === "number" ? d.avg_baseline_tokens : 0,
       source: "live",
     };
   } catch (e) {
@@ -533,11 +561,61 @@ export type SessionUsage = {
   repo: string;
   model: string | null;
   totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   hookOverheadTokens: number;
   hookOverheadBreakdown: Record<string, number>;
   mcpServers: string[]; // MCP server names active for the project (#106)
+  mcpCalls: Record<string, number>; // tool calls per MCP server (#153)
+  baselineTokens: number; // measured first-call context (#152)
+  turnCount: number; // real API calls; 0 = row predates call tracking
   endedAt: string;
 };
+
+// Detail = list shape + the per-turn series for the Cost Anatomy chart (#152).
+// Each entry is [input, cacheRead, cacheCreation, output] for one API call.
+export type SessionDetail = SessionUsage & { turnUsage: number[][] };
+
+// Wire shape shared by GET /v1/sessions and /v1/session/:id (snake_case).
+type ApiSession = {
+  session_id: string;
+  repo: string;
+  model: string | null;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  hook_overhead_tokens: number;
+  hook_overhead_breakdown: Record<string, number>;
+  mcp_servers?: string[];
+  mcp_calls?: Record<string, number>;
+  baseline_tokens?: number;
+  turn_count?: number;
+  ended_at: string;
+};
+
+function normalizeSession(s: ApiSession): SessionUsage {
+  return {
+    sessionId: s.session_id,
+    repo: s.repo,
+    model: s.model,
+    totalTokens: s.total_tokens,
+    inputTokens: s.input_tokens ?? 0,
+    outputTokens: s.output_tokens ?? 0,
+    cacheReadTokens: s.cache_read_tokens ?? 0,
+    cacheCreationTokens: s.cache_creation_tokens ?? 0,
+    hookOverheadTokens: s.hook_overhead_tokens,
+    hookOverheadBreakdown: s.hook_overhead_breakdown ?? {},
+    mcpServers: s.mcp_servers ?? [],
+    mcpCalls: s.mcp_calls ?? {},
+    baselineTokens: s.baseline_tokens ?? 0,
+    turnCount: s.turn_count ?? 0,
+    endedAt: s.ended_at,
+  };
+}
 
 export async function fetchSessions(
   accessToken: string,
@@ -552,26 +630,8 @@ export async function fetchSessions(
       cache: "no-store",
     });
     if (!res.ok) return [];
-    const d = (await res.json()) as Array<{
-      session_id: string;
-      repo: string;
-      model: string | null;
-      total_tokens: number;
-      hook_overhead_tokens: number;
-      hook_overhead_breakdown: Record<string, number>;
-      mcp_servers?: string[];
-      ended_at: string;
-    }>;
-    return d.map((s) => ({
-      sessionId: s.session_id,
-      repo: s.repo,
-      model: s.model,
-      totalTokens: s.total_tokens,
-      hookOverheadTokens: s.hook_overhead_tokens,
-      hookOverheadBreakdown: s.hook_overhead_breakdown ?? {},
-      mcpServers: s.mcp_servers ?? [],
-      endedAt: s.ended_at,
-    }));
+    const d = (await res.json()) as ApiSession[];
+    return d.map(normalizeSession);
   } catch {
     return [];
   }
@@ -582,7 +642,7 @@ export async function fetchSessions(
 export async function fetchSession(
   accessToken: string,
   id: string,
-): Promise<SessionUsage | null> {
+): Promise<SessionDetail | null> {
   if (!accessToken) return null;
   try {
     const res = await fetch(`${API_URL}/v1/session/${encodeURIComponent(id)}`, {
@@ -590,26 +650,8 @@ export async function fetchSession(
       cache: "no-store",
     });
     if (!res.ok) return null;
-    const s = (await res.json()) as {
-      session_id: string;
-      repo: string;
-      model: string | null;
-      total_tokens: number;
-      hook_overhead_tokens: number;
-      hook_overhead_breakdown: Record<string, number>;
-      mcp_servers?: string[];
-      ended_at: string;
-    };
-    return {
-      sessionId: s.session_id,
-      repo: s.repo,
-      model: s.model,
-      totalTokens: s.total_tokens,
-      hookOverheadTokens: s.hook_overhead_tokens,
-      hookOverheadBreakdown: s.hook_overhead_breakdown ?? {},
-      mcpServers: s.mcp_servers ?? [],
-      endedAt: s.ended_at,
-    };
+    const s = (await res.json()) as ApiSession & { turn_usage?: number[][] };
+    return { ...normalizeSession(s), turnUsage: s.turn_usage ?? [] };
   } catch {
     return null;
   }
