@@ -2,7 +2,7 @@ import Link from "next/link";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import SessionList from "@/components/SessionList";
-import { fetchRepoSeries, fetchSessions, fmtTokens, fmtChartLabel, padSeriesToWindow } from "@/lib/data";
+import { fetchRepoSeries, fetchSessions, fmtTokens, fmtChartLabel, padSeriesToWindow, distinctDays } from "@/lib/data";
 import { PAGE_MAIN } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
 
@@ -40,7 +40,7 @@ export default async function RepoDetail({
     }),
     { tokens: 0, sessions: 0, input: 0, output: 0, cread: 0, ccreate: 0 },
   );
-  const activeDays = Math.max(1, points.length);
+  const activeDays = Math.max(1, distinctDays(points));
   const chartPoints = padSeriesToWindow(points, since);
 
   const breakdown = [
@@ -85,7 +85,7 @@ export default async function RepoDetail({
               <ul className="flex flex-wrap gap-x-8 gap-y-2.5 lg:pb-2">
                 <Annotation label="sessions" value={`${sum.sessions}`} />
                 <Annotation label="avg / day" value={`${fmtTokens(sum.tokens / activeDays)} tok`} />
-                <Annotation label="active days" value={`${points.length}`} />
+                <Annotation label="active days" value={`${activeDays}`} />
               </ul>
             </div>
           </section>

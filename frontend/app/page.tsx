@@ -5,7 +5,7 @@ import ModelBreakdown from "@/components/ModelBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import Landing from "@/components/Landing";
-import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow, chartUnitLabel } from "@/lib/data";
+import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow, chartUnitLabel, distinctDays } from "@/lib/data";
 import { PAGE_MAIN } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
 
@@ -40,7 +40,7 @@ export default async function Dashboard({
   const grandOverhead = repos.reduce((a, r) => a + r.hookOverheadTokens, 0);
   const overheadPct = grandTokens > 0 ? Math.round((grandOverhead / grandTokens) * 100) : 0;
   const ranked = [...repos].sort((a, b) => b.totalTokens - a.totalTokens);
-  const activeDays = Math.max(1, series.length);
+  const activeDays = Math.max(1, distinctDays(series));
   const avgPerDay = grandTokens / activeDays;
 
   return (

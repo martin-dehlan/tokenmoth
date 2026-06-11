@@ -207,6 +207,13 @@ function addPoints(a: SeriesPoint, b: SeriesPoint): SeriesPoint {
   };
 }
 
+// Distinct calendar days present in a series, regardless of bucket granularity.
+// "avg / day" must divide by real days — for hour windows the buckets are
+// minutes/hours, not days, so series.length would be wrong.
+export function distinctDays(points: SeriesPoint[]): number {
+  return new Set(points.map((p) => p.day.slice(0, 10))).size;
+}
+
 export function padSeriesToWindow(points: SeriesPoint[], since: string): SeriesPoint[] {
   const win = windowMs(since);
   if (win === null) return points; // "all" — keep the data extent
