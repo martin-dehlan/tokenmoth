@@ -6,7 +6,7 @@ export default function HookBreakdown({ hooks }: { hooks: HookOverhead[] }) {
   return (
     <div className="flex flex-col gap-3">
       {hooks.map((h) => (
-        <div key={h.hook} className="grid grid-cols-[12rem_1fr_5rem] items-center gap-4">
+        <div key={h.hook} className="grid grid-cols-[6rem_1fr_4rem] sm:grid-cols-[12rem_1fr_5rem] items-center gap-3 sm:gap-4">
           <span className="font-mono text-[12px] text-ink truncate" title={h.hook}>
             {h.hook}
           </span>
