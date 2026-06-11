@@ -43,7 +43,7 @@ export default function RepoList({ repos }: { repos: RepoUsage[] }) {
           <option value="recent">sort: recent</option>
         </select>
         <span className="text-[10px] tracking-label text-faint ml-auto">
-          showing {sorted.length} of {repos.length}
+          showing {visible.length} of {repos.length}
         </span>
       </div>
 
@@ -67,7 +67,7 @@ export default function RepoList({ repos }: { repos: RepoUsage[] }) {
               onClick={() => setExpanded((v) => !v)}
               className="mt-3 w-full text-[10px] uppercase tracking-label text-muted hover:text-ink border-t border-hair pt-3 transition-colors"
             >
-              {expanded ? "show less ↑" : `show ${hidden} more ↓`}
+              {expanded ? "show less" : `show ${hidden} more`}
             </button>
           )}
         </>
