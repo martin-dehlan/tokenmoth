@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 // Proxy → /v1/export with the user's JWT; passes through the download headers.
-const API = process.env.TOKENMOTH_API_URL ?? "http://localhost:8080";
+const API = process.env.TOKENMOTH_API_URL ?? process.env.NEXT_PUBLIC_TOKENMOTH_API_URL ?? "http://localhost:8080";
 
 export async function GET(req: NextRequest) {
   const supabase = createClient();
