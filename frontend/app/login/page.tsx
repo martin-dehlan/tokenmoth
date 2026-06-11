@@ -1,12 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import MothLogo from "@/components/MothLogo";
 import { createClient } from "@/lib/supabase/client";
 
-export default function Login() {
+// Map callback error codes (and raw Supabase messages) to friendly copy. The
+// OAuth callback redirects here with ?error=… on failure; without this the user
+// would land on a blank login page with no explanation.
+function callbackError(raw: string | null): string | null {
+  if (!raw) return null;
+  if (raw === "missing_code") return "Sign-in didn't complete. Please try again.";
+  return "Sign-in failed. Please try again.";
+}
+
+function LoginCard() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const params = useSearchParams();
+  const callbackErr = callbackError(params.get("error"));
 
   async function signIn() {
     setBusy(true);
@@ -22,6 +34,9 @@ export default function Login() {
     }
   }
 
+  // The live sign-in error takes precedence over a stale callback param.
+  const shown = err ?? callbackErr;
+
   return (
     <main className="min-h-screen flex items-center justify-center px-5">
       <div className="rounded-surface border border-line bg-surface shadow-surface px-8 py-10 w-full max-w-sm text-center">
@@ -35,8 +50,21 @@ export default function Login() {
           {busy ? "redirecting…" : "Sign in with Google"}
         </button>
 
-        {err && <p className="mt-4 text-[11px] text-warn">{err}</p>}
+        {shown && (
+          <p className="mt-4 text-[11px] text-warn" role="alert">
+            {shown}
+          </p>
+        )}
       </div>
     </main>
+  );
+}
+
+export default function Login() {
+  // useSearchParams() needs a Suspense boundary in the App Router.
+  return (
+    <Suspense>
+      <LoginCard />
+    </Suspense>
   );
 }
