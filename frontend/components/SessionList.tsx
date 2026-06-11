@@ -29,14 +29,16 @@ export default function SessionList({ sessions }: { sessions: SessionUsage[] }) 
                 {s.model && <span className="text-[11px] text-faint">{s.model}</span>}
               </div>
               <div className="flex items-baseline gap-4 text-[12px]">
-                <span className="text-muted tabular-nums font-mono">{fmtTokens(s.totalTokens)} tok</span>
+                <span className="text-muted tabular-nums font-mono w-24 text-right">
+                  {fmtTokens(s.totalTokens)} tok
+                </span>
                 <span
-                  className="text-accent tabular-nums font-mono"
+                  className="text-accent tabular-nums font-mono w-40 text-right"
                   title="estimated hook/plugin overhead for this session"
                 >
                   overhead ~{pct}% · {fmtTokens(s.hookOverheadTokens)}
                 </span>
-                <span className="text-faint">{relativeTime(s.endedAt)}</span>
+                <span className="text-faint tabular-nums w-16 text-right">{relativeTime(s.endedAt)}</span>
               </div>
             </div>
             {hooks.length > 0 && (
