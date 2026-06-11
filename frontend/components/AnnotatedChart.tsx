@@ -136,11 +136,14 @@ export default function AnnotatedChart({
             <text
               x={x(n - 1) + 6}
               y={endLabelY[si]}
-              fontSize={11}
+              fontSize={9}
+              fontFamily="var(--font-mono), monospace"
+              fontWeight={600}
+              letterSpacing={0.6}
               fill={s.color}
-              opacity={si === 0 ? 1 : 0.85}
+              opacity={si === 0 ? 1 : 0.9}
             >
-              {s.name}
+              {s.name.toUpperCase()}
             </text>
             {si === 0 && <circle cx={x(n - 1)} cy={y(s.values[n - 1] ?? 0)} r={4} fill={s.color} />}
           </g>
