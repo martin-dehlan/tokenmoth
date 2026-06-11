@@ -43,6 +43,27 @@ export default function AnnotatedChart({
   const linePath = (vals: number[]) =>
     vals.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
 
+  // End-of-line labels collide when several series finish at the same y (e.g.
+  // total/input/output all near 0 in the last bucket). Spread them vertically
+  // with a minimum gap, keeping value order, and nudge the stack up if it would
+  // overflow the bottom.
+  const LABEL_GAP = 13;
+  const endLabelY: number[] = (() => {
+    const items = series.map((s, si) => ({ si, yRaw: y(s.values[n - 1] ?? 0) + 3 }));
+    items.sort((a, b) => a.yRaw - b.yRaw);
+    const out: number[] = [];
+    let prev = -Infinity;
+    for (const it of items) {
+      const yy = Math.max(it.yRaw, prev + LABEL_GAP);
+      out[it.si] = yy;
+      prev = yy;
+    }
+    const bottom = H - 4;
+    const overflow = Math.max(0, ...out) - bottom;
+    if (overflow > 0) for (let i = 0; i < out.length; i++) out[i] -= overflow;
+    return out;
+  })();
+
   const areaPath =
     main && n > 1
       ? `${linePath(main.values)} L ${x(n - 1).toFixed(1)} ${y(0).toFixed(1)} L ${x(0).toFixed(
@@ -114,7 +135,7 @@ export default function AnnotatedChart({
             />
             <text
               x={x(n - 1) + 6}
-              y={y(s.values[n - 1] ?? 0) + 3}
+              y={endLabelY[si]}
               fontSize={11}
               fill={s.color}
               opacity={si === 0 ? 1 : 0.85}
