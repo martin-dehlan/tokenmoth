@@ -45,7 +45,9 @@ export function installLines(os: Os): string[] {
 // installer one-liner followed by a separate `tokenmoth setup`.
 export function installSequence(method: Method, os: Os, setupArgs: string): string[] {
   if (method === "npm") {
-    return [`npx tokenmoth setup ${setupArgs}`];
+    // -y skips npx's first-run "Ok to proceed?" prompt so the one-liner runs
+    // start-to-finish without interruption.
+    return [`npx -y tokenmoth setup ${setupArgs}`];
   }
   return [...installLines(os), `tokenmoth setup ${setupArgs}`];
 }
