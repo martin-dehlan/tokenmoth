@@ -72,7 +72,8 @@ export default function PlanBilling() {
   if (loading) return <div className="text-[12px] text-faint">loading…</div>;
   if (!plan) return <div className="text-[12px] text-faint">plan unavailable</div>;
 
-  const limit = plan.monthlyTokenLimit;
+  // The free-tier allowance is only meaningful once billing is live.
+  const limit = plan.billingEnabled ? plan.monthlyTokenLimit : null;
   const pct = limit ? Math.min(100, Math.round((plan.tokensThisMonth / limit) * 100)) : 0;
 
   return (
@@ -84,7 +85,7 @@ export default function PlanBilling() {
         </div>
         <div className="text-[11px] text-muted tabular-nums">
           {fmtTokens(plan.tokensThisMonth)} tok this month
-          {limit ? ` / ${fmtTokens(limit)} (${pct}%)` : " · unlimited"}
+          {limit ? ` / ${fmtTokens(limit)} (${pct}%)` : plan.billingEnabled ? " · unlimited" : ""}
         </div>
       </div>
 

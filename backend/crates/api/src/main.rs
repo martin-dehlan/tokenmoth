@@ -1734,7 +1734,10 @@ async fn get_plan(
             .map_err(internal)?;
     let tier = tier_by_id(&plan);
     let used = month_tokens(&st.db, user_id).await?;
-    let over_limit = tier.monthly_token_limit.map(|lim| used > lim).unwrap_or(false);
+    // Only meaningful once billing is live — otherwise every heavy free-tier
+    // user would be flagged "over limit" for a feature that isn't enabled.
+    let over_limit =
+        billing_enabled() && tier.monthly_token_limit.map(|lim| used > lim).unwrap_or(false);
     Ok(Json(PlanOut {
         plan: tier.id.to_string(),
         status,
