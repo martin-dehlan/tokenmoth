@@ -279,7 +279,7 @@ async fn ingest(
 
     // Idempotent per session_id (audit finding 5): re-fired SessionEnd updates
     // the row instead of double-counting cost.
-    sqlx::query(
+    let res = sqlx::query(
         r#"
         insert into token_logs
           (user_id, session_id, repo, project_path, input_tokens, output_tokens,
@@ -304,6 +304,11 @@ async fn ingest(
            model_usage                  = excluded.model_usage,
            -- live reports ($12 NULL) → now() (unchanged); backfill keeps real end time
            ended_at                     = coalesce($12, now())
+        -- Owner guard: session_id is globally unique, so a conflict from a
+        -- DIFFERENT user (e.g. a shared/synced ~/.claude across two accounts)
+        -- must NOT overwrite or re-attribute the first owner's row. The filter
+        -- updates 0 rows in that case; we treat it as a benign no-op below.
+        where token_logs.user_id = excluded.user_id
         "#,
     )
     .bind(user_id)
@@ -333,6 +338,19 @@ async fn ingest(
     .execute(&st.db)
     .await
     .map_err(internal)?;
+
+    // 0 rows affected on conflict → the session_id already belongs to another
+    // user and the owner guard rejected the write. Return success without
+    // leaking that the id exists (and skip the analytics event — nothing was
+    // ingested for this caller).
+    if res.rows_affected() == 0 {
+        tracing::warn!(
+            session_id = %t.session_id,
+            user_id = %user_id,
+            "ingest rejected: session_id owned by another user (owner guard)"
+        );
+        return Ok(StatusCode::ACCEPTED);
+    }
 
     // Product analytics: ingestion milestone (#26). Fire-and-forget, env-gated.
     posthog_capture(
