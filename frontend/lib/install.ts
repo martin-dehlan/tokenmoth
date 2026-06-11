@@ -45,6 +45,16 @@ export function installSequence(method: Method, os: Os, setupArgs: string): stri
   return [...installLines(os), `tokenmoth setup ${setupArgs}`];
 }
 
+// The one-time history-import command. Once the CLI is installed (via setup),
+// npm users still reach it through `npx`; script users have the bare binary on
+// PATH. Idempotent server-side, so it's always safe to re-run.
+export function backfillCommand(method: Method, key: string, apiUrl: string): string {
+  const args = `--key ${key} --api-url ${apiUrl}`;
+  return method === "npm"
+    ? `npx -y tokenmoth backfill ${args}`
+    : `tokenmoth backfill ${args}`;
+}
+
 // Short caption shown under the install block. Only the script path has caveats
 // (PowerShell on Windows); npm is the same everywhere.
 export function methodNote(method: Method, os: Os): string | null {

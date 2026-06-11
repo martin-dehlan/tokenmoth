@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import BackfillCommand from "@/components/BackfillCommand";
 
 type Key = {
   id: string;
@@ -121,6 +122,10 @@ export default function KeyManager() {
           <pre className="font-mono text-[11px] text-muted whitespace-pre-wrap break-all bg-surface border border-hair rounded-btn p-2 m-0">
             {`$ ${setupCmd.replace("\n", "\n$ ")}`}
           </pre>
+          <div className="text-[10px] uppercase tracking-label text-muted pt-2">
+            optional — import this machine&apos;s past sessions:
+          </div>
+          <BackfillCommand apiKey={created.key} apiUrl={SETUP_API_URL} method="npm" />
         </div>
       )}
 
