@@ -90,9 +90,10 @@ export default async function RepoDetail({
           </section>
 
           {/* CHART — zero-filled across the full window so the x-axis always
-              spans the selected range, not just where data happens to exist. */}
+              spans the selected range, flat at 0 when nothing happened. Only
+              "all" with no data ever shows the empty state. */}
           <section className="px-8 py-6 border-t border-hair">
-            {points.length > 0 ? (
+            {chartPoints.length > 0 ? (
               <AnnotatedChart
                 series={[
                   { name: "total", color: "#1a7f64", values: chartPoints.map((p) => p.totalTokens) },
@@ -104,7 +105,7 @@ export default async function RepoDetail({
               />
             ) : (
               <div className="text-[12px] text-faint py-10 text-center">
-                no activity for {name} in this window
+                no activity for {name} yet
               </div>
             )}
           </section>
