@@ -133,22 +133,43 @@ export function fmtChartLabel(dayStr: string, since: string): string {
   return `${mm}-${dd}`;
 }
 
-// ---- chart window padding -------------------------------------------------
-// The backend groups the series by bucket and omits empty buckets, so the chart
-// x-axis only spanned the extent of the data (e.g. an 18-min burst looked like
-// the whole "5h" window). Zero-fill the series across the full selected window
-// for display so the axis always covers the real time range. "all" has no fixed
-// window and is returned unchanged. Mirrors the backend's grouping units
-// (1h/5h → minute, 12h/24h → hour, else day).
+// ---- chart window padding & re-bucketing ----------------------------------
+// Two problems with the raw series for charting:
+//   1) the backend omits empty buckets, so the x-axis only spanned the data
+//      extent (an 18-min burst looked like the whole "5h" window);
+//   2) the backend's grouping is too fine for short windows (1h/5h come back at
+//      minute resolution → 60 / 300 points, unreadable).
+// So for display we pick a sensible bin per window (~12–30 points), re-aggregate
+// the backend buckets into those bins (summing), and zero-fill the full window.
+// Display bins are always ≥ the backend's grouping, so summing is sound. "all"
+// is unbounded and returned unchanged.
 
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
 
+// Display bin size per window (must be ≥ the backend grouping unit).
 function bucketMs(since: string): number {
-  if (since === "1h" || since === "5h") return MINUTE;
-  if (since === "12h" || since === "24h") return HOUR;
-  return DAY;
+  switch (since) {
+    case "1h": return 5 * MINUTE; //   12 pts
+    case "5h": return 15 * MINUTE; //  20 pts
+    case "12h": return HOUR; //        12 pts
+    case "24h": return HOUR; //        24 pts
+    case "90d": return 3 * DAY; //     30 pts
+    default: return DAY; //  7d → 7, 30d → 30
+  }
+}
+
+// Human label for the chart's y-unit, matching bucketMs above.
+export function chartUnitLabel(since: string): string {
+  switch (since) {
+    case "1h": return "tokens / 5 min";
+    case "5h": return "tokens / 15 min";
+    case "12h":
+    case "24h": return "tokens / hr";
+    case "90d": return "tokens / 3 d";
+    default: return /\dh$/.test(since) ? "tokens / hr" : "tokens / day";
+  }
 }
 
 // Window length in ms, or null for "all"/unbounded.
@@ -172,6 +193,20 @@ function emptyPoint(day: string): SeriesPoint {
   };
 }
 
+// Sum b's numeric fields into a (a's day/bin label is kept).
+function addPoints(a: SeriesPoint, b: SeriesPoint): SeriesPoint {
+  return {
+    day: a.day,
+    sessions: a.sessions + b.sessions,
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    cacheCreationTokens: a.cacheCreationTokens + b.cacheCreationTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
+    costUsd: a.costUsd + b.costUsd,
+  };
+}
+
 export function padSeriesToWindow(points: SeriesPoint[], since: string): SeriesPoint[] {
   const win = windowMs(since);
   if (win === null) return points; // "all" — keep the data extent
@@ -180,12 +215,16 @@ export function padSeriesToWindow(points: SeriesPoint[], since: string): SeriesP
   const end = Math.floor(now / step) * step;
   const start = Math.floor((now - win) / step) * step;
 
-  // Index existing buckets by their step-aligned epoch (backend buckets are
-  // already truncated to the unit, so this snaps cleanly).
+  // Aggregate backend buckets into the (coarser-or-equal) display bins. Multiple
+  // fine buckets in one display bin are summed, not overwritten.
   const byBucket = new Map<number, SeriesPoint>();
   for (const p of points) {
     const t = Date.parse(p.day);
-    if (!Number.isNaN(t)) byBucket.set(Math.floor(t / step) * step, p);
+    if (Number.isNaN(t)) continue;
+    const b = Math.floor(t / step) * step;
+    const binDay = new Date(b).toISOString();
+    const prev = byBucket.get(b);
+    byBucket.set(b, prev ? addPoints(prev, p) : { ...p, day: binDay });
   }
 
   const out: SeriesPoint[] = [];
