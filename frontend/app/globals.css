@@ -131,6 +131,25 @@ body {
     font-weight: 500;
   }
 
+  /* Touch devices get comfortably sized tap targets without changing the
+     compact desktop density. */
+  @media (pointer: coarse) {
+    .btn {
+      padding: 10px 14px;
+    }
+    .seg > * {
+      padding: 10px 12px;
+    }
+  }
+
+  /* Keyboard focus — subtle accent ring, consistent across controls/links. */
+  .btn:focus-visible,
+  .seg > *:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
   /* Status pill. */
   .tag {
     font-family: var(--font-mono), monospace;

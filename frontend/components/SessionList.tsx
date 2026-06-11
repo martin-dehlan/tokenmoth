@@ -22,8 +22,8 @@ export default function SessionList({ sessions }: { sessions: SessionUsage[] }) 
             className="py-3 flex flex-col gap-1.5 group hover:bg-canvas -mx-2 px-2 rounded-btn transition-colors"
           >
             <div className="flex items-baseline justify-between gap-3 flex-wrap">
-              <div className="flex items-baseline gap-2">
-                <span className="font-mono text-[13px] text-ink group-hover:text-accent transition-colors">
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="font-mono text-[13px] text-ink group-hover:text-accent transition-colors min-w-0 truncate">
                   {s.repo}
                 </span>
                 {s.source === "desktop_mcp" && (
@@ -36,17 +36,17 @@ export default function SessionList({ sessions }: { sessions: SessionUsage[] }) 
                 )}
                 {s.model && <span className="text-[11px] text-faint">{s.model}</span>}
               </div>
-              <div className="flex items-baseline gap-4 text-[12px]">
-                <span className="text-muted tabular-nums font-mono w-24 text-right">
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[12px] sm:flex-nowrap">
+                <span className="text-muted tabular-nums font-mono sm:w-24 sm:text-right">
                   {fmtTokens(s.totalTokens)} tok
                 </span>
                 <span
-                  className="text-accent tabular-nums font-mono w-40 text-right"
+                  className="text-accent tabular-nums font-mono sm:w-40 sm:text-right"
                   title="estimated hook/plugin overhead for this session"
                 >
                   overhead ~{pct}% · {fmtTokens(s.hookOverheadTokens)}
                 </span>
-                <span className="text-faint tabular-nums w-16 text-right">{relativeTime(s.endedAt)}</span>
+                <span className="text-faint tabular-nums sm:w-16 sm:text-right">{relativeTime(s.endedAt)}</span>
               </div>
             </div>
             {hooks.length > 0 && (

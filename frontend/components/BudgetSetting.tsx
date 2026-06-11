@@ -102,7 +102,8 @@ export default function BudgetSetting() {
           step="1"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          className="w-28 border border-line rounded-btn px-3 py-1.5 text-[13px] shadow-btn focus:outline-none focus:border-accent bg-surface tabular-nums"
+          inputMode="decimal"
+          className="w-28 border border-line rounded-btn px-3 py-1.5 text-[16px] sm:text-[13px] shadow-btn focus:outline-none focus:border-accent bg-surface tabular-nums"
         />
         <span className="text-[12px] text-muted">/ month</span>
         <button type="submit" className="btn btn-accent" disabled={saving || removing}>

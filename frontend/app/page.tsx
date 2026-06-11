@@ -48,7 +48,7 @@ export default async function Dashboard({
         <main className={PAGE_MAIN}>
           <div
             role="alert"
-            className="my-7 rounded-surface border border-line bg-surface shadow-surface px-8 py-10 text-center"
+            className="my-7 rounded-surface border border-line bg-surface shadow-surface px-4 sm:px-8 py-10 text-center"
           >
             <div className="text-[13px] font-medium text-warn mb-2">
               We couldn&apos;t reach the API
@@ -99,7 +99,7 @@ export default async function Dashboard({
         {/* one elevated surface */}
         <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
           {/* HERO */}
-          <section id="hero" className="px-8 pt-8 pb-7">
+          <section id="hero" className="px-4 sm:px-8 pt-8 pb-7">
             <div className="flex flex-col lg:flex-row lg:items-end gap-x-12 gap-y-6">
               <div className="shrink-0">
                 <div className="text-[10px] uppercase tracking-label text-faint mb-2">
@@ -121,7 +121,8 @@ export default async function Dashboard({
                 <Annotation
                   label="overhead"
                   value={`~${overheadPct}%`}
-                  title="estimated plugin/hook context injected per session — open a session for the per-plugin breakdown"
+                  title="estimated plugin/hook context injected per session"
+                  hint="open a session for the per-plugin breakdown"
                 />
                 {ranked[0] && <Annotation label="busiest" value={ranked[0].repo} />}
                 {trends?.hasPrevious && trends.deltaPct !== null && (
@@ -144,7 +145,7 @@ export default async function Dashboard({
               spans the selected range. A fixed window (1h/5h/…) always renders
               the full axis, flat at 0 when nothing happened; only "all" with no
               data ever shows the empty state. */}
-          <section className="px-8 py-6 border-t border-hair">
+          <section className="px-4 sm:px-8 py-6 border-t border-hair">
             {(() => {
               const chartPoints = padSeriesToWindow(series, since);
               return chartPoints.length > 0 ? (
@@ -169,14 +170,14 @@ export default async function Dashboard({
 
           {/* MODELS */}
           {models.length > 0 && (
-            <section className="px-8 pt-7 pb-7 border-t border-hair">
+            <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
               <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">by model</h2>
               <ModelBreakdown models={models} />
             </section>
           )}
 
           {/* INSTRUMENTS */}
-          <section id="instruments" className="px-8 pt-7 pb-7 border-t border-hair">
+          <section id="instruments" className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
             <div className="flex items-baseline justify-between mb-3">
               <h2 className="text-[10px] uppercase tracking-label text-muted">repositories</h2>
               <div className="flex items-center gap-3">
@@ -209,7 +210,7 @@ export default async function Dashboard({
 
           {/* OPTIMIZER — what to act on, ordered by impact (#153/#154) */}
           {(mcpUsage.length > 0 || overheadByHook.length > 0) && (
-            <section className="px-8 pt-7 pb-7 border-t border-hair">
+            <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="text-[10px] uppercase tracking-label text-muted">optimizer</h2>
                 <span className="text-[10px] tracking-label text-faint">
@@ -239,14 +240,16 @@ function Annotation({
   value,
   accent,
   title,
+  hint,
 }: {
   label: string;
   value: string;
   accent?: boolean;
   title?: string;
+  hint?: string;
 }) {
   return (
-    <li className="flex items-baseline gap-2" title={title}>
+    <li className="flex flex-wrap items-baseline gap-2" title={title}>
       <span
         className={`h-1 w-1 rounded-full shrink-0 translate-y-[-2px] ${accent ? "bg-accent" : "bg-line-strong"}`}
       />
@@ -256,6 +259,8 @@ function Annotation({
       >
         {value}
       </span>
+      {/* hover-only tooltips are invisible on touch — surface the hint as text */}
+      {hint && <span className="basis-full pl-3 text-[10px] text-faint">{hint}</span>}
     </li>
   );
 }

@@ -38,8 +38,8 @@ function LoginCard() {
   const shown = err ?? callbackErr;
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-5">
-      <div className="rounded-surface border border-line bg-surface shadow-surface px-8 py-10 w-full max-w-sm text-center">
+    <main className="min-h-dvh flex items-center justify-center px-5">
+      <div className="rounded-surface border border-line bg-surface shadow-surface px-4 sm:px-8 py-10 w-full max-w-sm text-center">
         <div className="flex justify-center mb-6">
           <MothLogo className="h-7 w-auto text-ink" />
         </div>

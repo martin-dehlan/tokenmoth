@@ -65,12 +65,12 @@ export default async function RepoDetail({
 
         <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
           {/* HERO */}
-          <section className="px-8 pt-8 pb-7">
-            <div className="flex items-center gap-2 mb-4">
+          <section className="px-4 sm:px-8 pt-8 pb-7">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
               <Link href="/" className="btn text-muted">
                 ◀ <span className="text-ink">panel</span>
               </Link>
-              <span className="font-mono text-[13px] text-faint">/{name}</span>
+              <span className="font-mono text-[13px] text-faint min-w-0 break-all">/{name}</span>
             </div>
 
             <div className="flex flex-col lg:flex-row lg:items-end gap-x-12 gap-y-6">
@@ -93,7 +93,7 @@ export default async function RepoDetail({
           {/* CHART — zero-filled across the full window so the x-axis always
               spans the selected range, flat at 0 when nothing happened. Only
               "all" with no data ever shows the empty state. */}
-          <section className="px-8 py-6 border-t border-hair">
+          <section className="px-4 sm:px-8 py-6 border-t border-hair">
             {chartPoints.length > 0 ? (
               <AnnotatedChart
                 series={[
@@ -112,7 +112,7 @@ export default async function RepoDetail({
           </section>
 
           {/* BREAKDOWN */}
-          <section className="px-8 pt-7 pb-7 border-t border-hair">
+          <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
             <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">token breakdown</h2>
             <div className="flex flex-col gap-3">
               {breakdown.map((b) => (
@@ -130,7 +130,7 @@ export default async function RepoDetail({
           </section>
 
           {/* SESSION HISTORY */}
-          <section className="px-8 pt-7 pb-7 border-t border-hair">
+          <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
             <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">
               session history
             </h2>

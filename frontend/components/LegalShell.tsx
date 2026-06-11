@@ -79,7 +79,7 @@ export default function LegalShell({
 
       <main className="mx-auto max-w-3xl px-5 w-full">
         <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
-          <section className="px-8 pt-8 pb-8">
+          <section className="px-4 sm:px-8 pt-8 pb-8">
             <div className="text-[10px] uppercase tracking-label text-faint mb-1">{s.kicker}</div>
             <h1 className="text-2xl font-medium tracking-hero text-ink mb-1">{title}</h1>
             <p className="text-[11px] text-faint mb-6">

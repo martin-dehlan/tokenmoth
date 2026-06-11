@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export default function Onboarding() {
   return (
-    <div className="min-h-screen flex flex-col bg-stone">
+    <div className="min-h-dvh flex flex-col bg-stone">
       {/* slim rail — same language as the landing */}
       <header className="shrink-0 border-b border-line">
         <div className="mx-auto max-w-4xl px-6 h-14 flex items-center justify-between gap-4">
@@ -23,7 +23,7 @@ export default function Onboarding() {
 
       <main className="flex-1 grid place-items-center px-6 py-10">
         <div className="w-full max-w-2xl rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
-          <section className="px-8 pt-8 pb-8">
+          <section className="px-4 sm:px-8 pt-8 pb-8">
             <div className="text-[10px] uppercase tracking-label text-faint mb-3">get started</div>
             <h1 className="text-ink tracking-hero font-medium text-[28px] sm:text-[32px] leading-[1.1]">
               Track your Claude Code usage

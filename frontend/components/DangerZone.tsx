@@ -60,7 +60,11 @@ export default function DangerZone() {
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             placeholder="DELETE"
-            className="rounded-btn border border-line bg-canvas px-3 py-1.5 text-[12px] text-ink font-mono w-36 outline-none focus:border-warn"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            autoComplete="off"
+            spellCheck={false}
+            className="rounded-btn border border-line bg-canvas px-3 py-1.5 text-[16px] sm:text-[12px] text-ink font-mono w-36 outline-none focus:border-warn"
           />
           <button
             onClick={deleteAccount}
