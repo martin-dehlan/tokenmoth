@@ -17,6 +17,34 @@ tokenmoth setup --key <your-key> --api-url https://api.tokenmoth.com
 Other install paths (curl / PowerShell / Homebrew) and full docs:
 <https://github.com/martin-dehlan/tokenmoth#install>
 
+### Import past sessions (backfill)
+
+Already used Claude Code before installing? Pull your history in (idempotent —
+safe to re-run, and totals add up across machines without double-counting):
+
+```bash
+tokenmoth backfill --key <your-key> --api-url https://api.tokenmoth.com
+# --repo <name> to import a single repo · --dry-run to preview · --since <date>
+```
+
+### Claude Desktop (MCP server)
+
+Track **Claude Desktop** sessions too by adding tokenmoth as an MCP server in
+`claude_desktop_config.json`. It exposes a `report_session` tool that forwards
+usage to the same endpoint, tagged `source=desktop_mcp` (Desktop sessions show a
+`desktop` badge in the dashboard; Claude Code hook sessions are unaffected):
+
+```jsonc
+{
+  "mcpServers": {
+    "tokenmoth": {
+      "command": "tokenmoth",
+      "args": ["mcp", "--key", "<your-key>", "--api-url", "https://api.tokenmoth.com"]
+    }
+  }
+}
+```
+
 ### How it picks a binary
 
 `postinstall` maps `process.platform`/`process.arch` to a Rust target triple and

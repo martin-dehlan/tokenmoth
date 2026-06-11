@@ -26,6 +26,14 @@ export default function SessionList({ sessions }: { sessions: SessionUsage[] }) 
                 <span className="font-mono text-[13px] text-ink group-hover:text-accent transition-colors">
                   {s.repo}
                 </span>
+                {s.source === "desktop_mcp" && (
+                  <span
+                    className="text-[9px] uppercase tracking-label text-accent border border-accent/40 rounded-btn px-1.5 py-0.5"
+                    title="reported from Claude Desktop via the tokenmoth MCP server"
+                  >
+                    desktop
+                  </span>
+                )}
                 {s.model && <span className="text-[11px] text-faint">{s.model}</span>}
               </div>
               <div className="flex items-baseline gap-4 text-[12px]">

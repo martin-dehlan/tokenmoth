@@ -572,6 +572,7 @@ export type SessionUsage = {
   baselineTokens: number; // measured first-call context (#152)
   turnCount: number; // real API calls; 0 = row predates call tracking
   endedAt: string;
+  source: string; // "claude_code_hook" (default) | "desktop_mcp" (#82)
 };
 
 // Detail = list shape + the per-turn series for the Cost Anatomy chart (#152).
@@ -595,6 +596,7 @@ type ApiSession = {
   baseline_tokens?: number;
   turn_count?: number;
   ended_at: string;
+  source?: string;
 };
 
 function normalizeSession(s: ApiSession): SessionUsage {
@@ -614,6 +616,7 @@ function normalizeSession(s: ApiSession): SessionUsage {
     baselineTokens: s.baseline_tokens ?? 0,
     turnCount: s.turn_count ?? 0,
     endedAt: s.ended_at,
+    source: s.source ?? "claude_code_hook",
   };
 }
 

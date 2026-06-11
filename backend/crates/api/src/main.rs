@@ -110,6 +110,10 @@ struct Telemetry {
     /// downsampled CLI-side to ≤360 points (#152).
     #[serde(default)]
     turn_usage: Vec<[i64; 4]>,
+    /// Where the session came from: "claude_code_hook" (default) or
+    /// "desktop_mcp" (#82). Omitted by older clients → defaults hook-side.
+    #[serde(default)]
+    source: Option<String>,
 }
 
 fn init_tracing() {
@@ -285,8 +289,8 @@ async fn ingest(
           (user_id, session_id, repo, project_path, input_tokens, output_tokens,
            cache_read_input_tokens, cache_creation_input_tokens, model, hook_overhead_tokens,
            hook_overhead_breakdown, ended_at, mcp_servers, mcp_calls, baseline_tokens,
-           turn_count, turn_usage, model_usage)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, coalesce($12, now()), $13,$14,$15,$16,$17,$18)
+           turn_count, turn_usage, model_usage, source)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, coalesce($12, now()), $13,$14,$15,$16,$17,$18,$19)
         on conflict (session_id) do update set
            input_tokens                = excluded.input_tokens,
            output_tokens               = excluded.output_tokens,
@@ -302,6 +306,7 @@ async fn ingest(
            turn_count                   = excluded.turn_count,
            turn_usage                   = excluded.turn_usage,
            model_usage                  = excluded.model_usage,
+           source                       = excluded.source,
            -- live reports ($12 NULL) → now() (unchanged); backfill keeps real end time
            ended_at                     = coalesce($12, now())
         -- Owner guard: session_id is globally unique, so a conflict from a
@@ -335,6 +340,7 @@ async fn ingest(
     .bind(t.turn_count)
     .bind(sqlx::types::Json(&t.turn_usage))
     .bind(sqlx::types::Json(&t.model_usage))
+    .bind(t.source.clone().unwrap_or_else(|| "claude_code_hook".to_string()))
     .execute(&st.db)
     .await
     .map_err(internal)?;
@@ -1294,6 +1300,7 @@ struct SessionRow {
     baseline_tokens: i64,
     turn_count: i64,
     ended_at: DateTime<Utc>,
+    source: String,
 }
 
 #[derive(Serialize)]
@@ -1318,6 +1325,8 @@ struct SessionOut {
     /// Real API-call count (#152).
     turn_count: i64,
     ended_at: DateTime<Utc>,
+    /// "claude_code_hook" (default) or "desktop_mcp" (#82).
+    source: String,
 }
 
 impl From<SessionRow> for SessionOut {
@@ -1338,6 +1347,7 @@ impl From<SessionRow> for SessionOut {
             baseline_tokens: r.baseline_tokens,
             turn_count: r.turn_count,
             ended_at: r.ended_at,
+            source: r.source,
         }
     }
 }
@@ -1366,7 +1376,7 @@ async fn list_sessions(
                cache_read_input_tokens as cache_read_tokens,
                cache_creation_input_tokens as cache_creation_tokens,
                hook_overhead_tokens, hook_overhead_breakdown, mcp_servers, mcp_calls,
-               baseline_tokens, turn_count, ended_at
+               baseline_tokens, turn_count, ended_at, source
         from token_logs
         where user_id = $1
           and ($2::timestamptz is null or ended_at >= $2)
@@ -1419,7 +1429,7 @@ async fn get_session(
                cache_read_input_tokens as cache_read_tokens,
                cache_creation_input_tokens as cache_creation_tokens,
                hook_overhead_tokens, hook_overhead_breakdown, mcp_servers, mcp_calls,
-               baseline_tokens, turn_count, turn_usage, ended_at
+               baseline_tokens, turn_count, turn_usage, ended_at, source
         from token_logs
         where user_id = $1 and session_id = $2
         "#,

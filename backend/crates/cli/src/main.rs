@@ -86,6 +86,15 @@ enum Cmd {
         #[arg(long)]
         full: bool,
     },
+    /// Run as an MCP server for Claude Desktop (#82). Exposes a `report_session`
+    /// tool that forwards Desktop token usage to the same /v1/telemetry endpoint,
+    /// tagged source=desktop_mcp. Speaks JSON-RPC 2.0 over stdio.
+    Mcp {
+        #[arg(long)]
+        key: String,
+        #[arg(long, default_value = DEFAULT_API)]
+        api_url: String,
+    },
 }
 
 fn main() {
@@ -97,6 +106,7 @@ fn main() {
         Cmd::Backfill { key, api_url, dry_run, repo, since, yes, full } => {
             cmd_backfill(key, api_url, *dry_run, repo.as_deref(), since.as_deref(), *yes, *full)
         }
+        Cmd::Mcp { key, api_url } => cmd_mcp(key, api_url),
     };
     if let Err(e) = r {
         // A hook must never break the user's session — log to stderr and exit 0.
@@ -566,6 +576,132 @@ fn retry_after(res: &reqwest::blocking::Response) -> Option<Duration> {
         .parse::<u64>()
         .ok()
         .map(Duration::from_secs)
+}
+
+// ---- MCP server for Claude Desktop (#82) -----------------------------------
+
+/// Minimal MCP stdio server. Newline-delimited JSON-RPC 2.0 — one message per
+/// line on stdin, one response per line on stdout. ALL diagnostics go to stderr;
+/// stdout is the protocol channel and must carry nothing but JSON-RPC.
+fn cmd_mcp(key: &str, api_url: &str) -> anyhow::Result<()> {
+    use std::io::BufRead;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()?;
+    let stdin = std::io::stdin();
+    let mut out = std::io::stdout();
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let req: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("tokenmoth mcp: ignoring bad JSON: {e}");
+                continue;
+            }
+        };
+        let id = req.get("id").cloned();
+        let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
+        let response = match method {
+            "initialize" => Some(rpc_ok(id, mcp_initialize_result())),
+            "tools/list" => Some(rpc_ok(id, mcp_tools_result())),
+            "ping" => Some(rpc_ok(id, json!({}))),
+            "tools/call" => Some(mcp_tools_call(&client, api_url, key, id, req.get("params"))),
+            // Notifications (no id), e.g. notifications/initialized → no reply.
+            _ if id.is_some() => Some(rpc_err(id, -32601, "method not found")),
+            _ => None,
+        };
+        if let Some(resp) = response {
+            let _ = writeln!(out, "{}", serde_json::to_string(&resp).unwrap_or_default());
+            let _ = out.flush();
+        }
+    }
+    Ok(())
+}
+
+fn rpc_ok(id: Option<Value>, result: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id.unwrap_or(Value::Null), "result": result })
+}
+
+fn rpc_err(id: Option<Value>, code: i64, message: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id.unwrap_or(Value::Null), "error": { "code": code, "message": message } })
+}
+
+fn mcp_initialize_result() -> Value {
+    json!({
+        "protocolVersion": "2024-11-05",
+        "capabilities": { "tools": {} },
+        "serverInfo": { "name": "tokenmoth", "version": env!("CARGO_PKG_VERSION") },
+    })
+}
+
+fn mcp_tools_result() -> Value {
+    json!({ "tools": [ {
+        "name": "report_session",
+        "description": "Report a Claude Desktop session's token usage to TokenMoth.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "string", "description": "Unique id for this Desktop session" },
+                "input_tokens": { "type": "integer" },
+                "output_tokens": { "type": "integer" },
+                "cache_read_input_tokens": { "type": "integer" },
+                "cache_creation_input_tokens": { "type": "integer" },
+                "model": { "type": "string" },
+                "project_path": { "type": "string" }
+            },
+            "required": ["session_id"]
+        }
+    } ] })
+}
+
+/// Handle `tools/call` for `report_session`: build a telemetry payload from the
+/// tool arguments and POST it tagged `source=desktop_mcp`.
+fn mcp_tools_call(
+    client: &reqwest::blocking::Client,
+    api_url: &str,
+    key: &str,
+    id: Option<Value>,
+    params: Option<&Value>,
+) -> Value {
+    let params = params.cloned().unwrap_or_else(|| json!({}));
+    let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+    if name != "report_session" {
+        return rpc_err(id, -32602, &format!("unknown tool: {name}"));
+    }
+    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let session_id = args.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+    if session_id.is_empty() {
+        return mcp_tool_text(id, "error: session_id is required", true);
+    }
+    let body = desktop_telemetry_body(session_id, &args);
+    if post_with_retry(client, api_url, key, &body) {
+        mcp_tool_text(id, "session reported to TokenMoth", false)
+    } else {
+        mcp_tool_text(id, "failed to report session to TokenMoth (will not double-count on retry)", true)
+    }
+}
+
+/// Build a /v1/telemetry payload from MCP `report_session` arguments.
+fn desktop_telemetry_body(session_id: &str, args: &Value) -> Value {
+    let geti = |k: &str| args.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
+    json!({
+        "session_id": session_id,
+        "project_path": args.get("project_path").and_then(|v| v.as_str()).unwrap_or("Claude Desktop"),
+        "repo": "Claude Desktop",
+        "model": args.get("model").and_then(|v| v.as_str()),
+        "input_tokens": geti("input_tokens"),
+        "output_tokens": geti("output_tokens"),
+        "cache_read_input_tokens": geti("cache_read_input_tokens"),
+        "cache_creation_input_tokens": geti("cache_creation_input_tokens"),
+        "source": "desktop_mcp",
+    })
+}
+
+fn mcp_tool_text(id: Option<Value>, text: &str, is_error: bool) -> Value {
+    rpc_ok(id, json!({ "content": [ { "type": "text", "text": text } ], "isError": is_error }))
 }
 
 /// One deduped session ready to (re-)ingest.
@@ -1038,6 +1174,34 @@ mod tests {
         // The --since filter relies on lexical ordering of ISO-8601 timestamps.
         assert!("2026-03-04T12:00:00Z" >= "2026-01-01");
         assert!("2025-12-31T23:59:59Z" < "2026-01-01");
+    }
+
+    #[test]
+    fn mcp_advertises_report_session_tool() {
+        let tools = mcp_tools_result();
+        let arr = tools["tools"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["name"], "report_session");
+        assert_eq!(arr[0]["inputSchema"]["required"][0], "session_id");
+    }
+
+    #[test]
+    fn mcp_desktop_body_is_tagged_and_defaults() {
+        let args = json!({ "session_id": "d1", "input_tokens": 42, "model": "claude-opus-4-8" });
+        let body = desktop_telemetry_body("d1", &args);
+        assert_eq!(body["source"], "desktop_mcp");
+        assert_eq!(body["input_tokens"], 42);
+        assert_eq!(body["output_tokens"], 0); // missing → 0, never null
+        assert_eq!(body["project_path"], "Claude Desktop");
+        assert_eq!(body["model"], "claude-opus-4-8");
+    }
+
+    #[test]
+    fn rpc_error_keeps_id_and_code() {
+        let e = rpc_err(Some(json!(7)), -32601, "method not found");
+        assert_eq!(e["id"], 7);
+        assert_eq!(e["error"]["code"], -32601);
+        assert_eq!(e["jsonrpc"], "2.0");
     }
 
     #[test]
