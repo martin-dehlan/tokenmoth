@@ -5,7 +5,7 @@ import ModelBreakdown from "@/components/ModelBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import Landing from "@/components/Landing";
-import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow } from "@/lib/data";
+import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow, chartUnitLabel } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -110,7 +110,7 @@ export default async function Dashboard({
                 <AnnotatedChart
                   series={[
                     {
-                      name: since.endsWith("h") ? (since === "1h" || since === "5h" ? "tokens / min" : "tokens / hr") : "tokens / day",
+                      name: chartUnitLabel(since),
                       color: "#1a7f64",
                       values: chartPoints.map((p) => p.totalTokens),
                     },
