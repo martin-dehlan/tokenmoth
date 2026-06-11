@@ -16,7 +16,7 @@
   "author": "Martin Dehlan",
   "repository": {
     "type": "git",
-    "url": "https://github.com/martin-dehlan/tokenmoth.git",
+    "url": "git+https://github.com/martin-dehlan/tokenmoth.git",
     "directory": "npm"
   },
   "bin": {

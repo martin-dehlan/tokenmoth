@@ -93,12 +93,17 @@ jobs:
       - name: Publish to S3
         shell: bash
         run: |
+          # Short cache-control so a new release propagates through CloudFront
+          # within minutes (the artifacts are "latest", same URL each release).
+          # CloudFront's CachingOptimized policy honors these origin headers.
           aws s3 cp "tokenmoth-${{ matrix.target }}.tar.gz" \
             "s3://${{ env.S3_BUCKET }}/tokenmoth-${{ matrix.target }}.tar.gz" \
-            --region "${{ env.AWS_REGION }}"
+            --region "${{ env.AWS_REGION }}" \
+            --cache-control "public, max-age=300, must-revalidate"
           aws s3 cp "tokenmoth-${{ matrix.target }}.tar.gz.sha256" \
             "s3://${{ env.S3_BUCKET }}/tokenmoth-${{ matrix.target }}.tar.gz.sha256" \
-            --region "${{ env.AWS_REGION }}"
+            --region "${{ env.AWS_REGION }}" \
+            --cache-control "public, max-age=300, must-revalidate"
 
   # ── npm channel ──────────────────────────────────────────────────────────
   # `npm i -g tokenmoth` / `npx tokenmoth`. Highest-reach path for the Claude
