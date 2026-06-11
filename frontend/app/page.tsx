@@ -6,6 +6,7 @@ import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import Landing from "@/components/Landing";
 import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow, chartUnitLabel } from "@/lib/data";
+import { PAGE_MAIN } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -46,7 +47,7 @@ export default async function Dashboard({
     <>
       <TopRail active="usage" since={since} />
 
-      <main className="mx-auto max-w-7xl px-5">
+      <main className={PAGE_MAIN}>
         {!live && (
           <div className="mt-5 text-[11px] text-warn flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-warn inline-block" />

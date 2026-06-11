@@ -2,6 +2,7 @@ import Link from "next/link";
 import WindowSelect from "./WindowSelect";
 import MothLogo from "./MothLogo";
 import ThemeToggle from "./ThemeToggle";
+import { PAGE_MAX_W } from "@/lib/ui";
 
 type Nav = { key: string; label: string; href: string };
 
@@ -23,7 +24,7 @@ export default function TopRail({
 }) {
   return (
     <header className="border-b border-line">
-      <div className="mx-auto max-w-7xl px-5 h-14 flex items-center justify-between gap-4">
+      <div className={`mx-auto ${PAGE_MAX_W} px-5 h-14 flex items-center justify-between gap-4`}>
         {/* left: logo pip + wordmark + workspace */}
         <Link href="/" className="flex items-center gap-2.5 shrink-0">
           <MothLogo className="h-[22px] w-auto text-ink shrink-0" />
