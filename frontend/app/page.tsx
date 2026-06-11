@@ -140,24 +140,6 @@ export default async function Dashboard({
             </section>
           )}
 
-          {/* OPTIMIZER — what to act on, ordered by impact (#153/#154) */}
-          {(mcpUsage.length > 0 || overheadByHook.length > 0) && (
-            <section className="px-8 pt-7 pb-7 border-t border-hair">
-              <div className="flex items-baseline justify-between mb-4">
-                <h2 className="text-[10px] uppercase tracking-label text-muted">optimizer</h2>
-                <span className="text-[10px] tracking-label text-faint">
-                  last {since} · what to disable
-                </span>
-              </div>
-              <Optimizer
-                mcpUsage={mcpUsage}
-                hooks={overheadByHook}
-                windowDays={windowDays}
-                avgBaselineTokens={avgBaselineTokens}
-              />
-            </section>
-          )}
-
           {/* INSTRUMENTS */}
           <section id="instruments" className="px-8 pt-7 pb-7 border-t border-hair">
             <div className="flex items-baseline justify-between mb-3">
@@ -189,6 +171,24 @@ export default async function Dashboard({
               <RepoList repos={ranked} />
             )}
           </section>
+
+          {/* OPTIMIZER — what to act on, ordered by impact (#153/#154) */}
+          {(mcpUsage.length > 0 || overheadByHook.length > 0) && (
+            <section className="px-8 pt-7 pb-7 border-t border-hair">
+              <div className="flex items-baseline justify-between mb-4">
+                <h2 className="text-[10px] uppercase tracking-label text-muted">optimizer</h2>
+                <span className="text-[10px] tracking-label text-faint">
+                  last {since} · what to disable
+                </span>
+              </div>
+              <Optimizer
+                mcpUsage={mcpUsage}
+                hooks={overheadByHook}
+                windowDays={windowDays}
+                avgBaselineTokens={avgBaselineTokens}
+              />
+            </section>
+          )}
         </div>
 
         <footer className="pb-10 text-[11px] text-faint">
