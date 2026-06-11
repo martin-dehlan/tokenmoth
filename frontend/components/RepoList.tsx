@@ -6,9 +6,12 @@ import { RepoUsage, INSTRUMENT_COLORS } from "@/lib/data";
 
 type Sort = "tokens" | "sessions" | "recent";
 
+const COLLAPSED = 5;
+
 export default function RepoList({ repos }: { repos: RepoUsage[] }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<Sort>("tokens");
+  const [expanded, setExpanded] = useState(false);
 
   const max = Math.max(1, ...repos.map((r) => r.totalTokens));
   const filtered = repos.filter((r) => r.repo.toLowerCase().includes(q.trim().toLowerCase()));
@@ -17,6 +20,9 @@ export default function RepoList({ repos }: { repos: RepoUsage[] }) {
     if (sort === "recent") return a.lastActive < b.lastActive ? 1 : -1;
     return b.totalTokens - a.totalTokens;
   });
+  // Show the top N by default; the long tail expands on demand (lean list).
+  const visible = expanded ? sorted : sorted.slice(0, COLLAPSED);
+  const hidden = sorted.length - visible.length;
 
   return (
     <>
@@ -44,16 +50,27 @@ export default function RepoList({ repos }: { repos: RepoUsage[] }) {
       {sorted.length === 0 ? (
         <div className="text-[12px] text-faint py-6 text-center">no repos match “{q}”.</div>
       ) : (
-        <div className="divide-y divide-hair">
-          {sorted.map((r, i) => (
-            <RepoBreaker
-              key={r.repo}
-              repo={r}
-              max={max}
-              color={INSTRUMENT_COLORS[i % INSTRUMENT_COLORS.length]}
-            />
-          ))}
-        </div>
+        <>
+          <div className="divide-y divide-hair">
+            {visible.map((r, i) => (
+              <RepoBreaker
+                key={r.repo}
+                repo={r}
+                max={max}
+                color={INSTRUMENT_COLORS[i % INSTRUMENT_COLORS.length]}
+              />
+            ))}
+          </div>
+          {(hidden > 0 || expanded) && sorted.length > COLLAPSED && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-3 w-full text-[10px] uppercase tracking-label text-muted hover:text-ink border-t border-hair pt-3 transition-colors"
+            >
+              {expanded ? "show less ↑" : `show ${hidden} more ↓`}
+            </button>
+          )}
+        </>
       )}
     </>
   );
