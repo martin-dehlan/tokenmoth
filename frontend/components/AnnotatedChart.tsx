@@ -81,8 +81,8 @@ export default function AnnotatedChart({
         {/* area under main line */}
         {areaPath && <path d={areaPath} fill="rgba(26,127,100,0.05)" stroke="none" />}
 
-        {/* peak callout */}
-        {main && n > 1 && (
+        {/* peak callout — skip when the window is entirely empty (no "peak 0") */}
+        {main && n > 1 && main.values[spikeI] > 0 && (
           <g>
             <line
               x1={x(spikeI)}

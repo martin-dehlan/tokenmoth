@@ -100,30 +100,30 @@ export default async function Dashboard({
           </section>
 
           {/* CHART — zero-filled across the full window so the x-axis always
-              spans the selected range, not just where data happens to exist. */}
+              spans the selected range. A fixed window (1h/5h/…) always renders
+              the full axis, flat at 0 when nothing happened; only "all" with no
+              data ever shows the empty state. */}
           <section className="px-8 py-6 border-t border-hair">
-            {series.length > 0 ? (
-              (() => {
-                const chartPoints = padSeriesToWindow(series, since);
-                return (
-                  <AnnotatedChart
-                    series={[
-                      {
-                        name: since.endsWith("h") ? (since === "1h" || since === "5h" ? "tokens / min" : "tokens / hr") : "tokens / day",
-                        color: "#1a7f64",
-                        values: chartPoints.map((p) => p.totalTokens),
-                      },
-                    ]}
-                    xLabels={chartPoints.map((p) => fmtChartLabel(p.day, since))}
-                    format={fmtTokens}
-                  />
-                );
-              })()
-            ) : (
-              <div className="text-[12px] text-faint py-10 text-center">
-                no activity in this window yet
-              </div>
-            )}
+            {(() => {
+              const chartPoints = padSeriesToWindow(series, since);
+              return chartPoints.length > 0 ? (
+                <AnnotatedChart
+                  series={[
+                    {
+                      name: since.endsWith("h") ? (since === "1h" || since === "5h" ? "tokens / min" : "tokens / hr") : "tokens / day",
+                      color: "#1a7f64",
+                      values: chartPoints.map((p) => p.totalTokens),
+                    },
+                  ]}
+                  xLabels={chartPoints.map((p) => fmtChartLabel(p.day, since))}
+                  format={fmtTokens}
+                />
+              ) : (
+                <div className="text-[12px] text-faint py-10 text-center">
+                  no activity yet
+                </div>
+              );
+            })()}
           </section>
 
           {/* MODELS */}
