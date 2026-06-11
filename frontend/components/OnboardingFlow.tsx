@@ -5,6 +5,7 @@ import Link from "next/link";
 import posthog from "posthog-js";
 import OsSelect from "@/components/OsSelect";
 import MethodSelect from "@/components/MethodSelect";
+import BackfillCommand from "@/components/BackfillCommand";
 import { detectOs, installSequence, methodNote, type Method, type Os } from "@/lib/install";
 
 const PH = process.env.NEXT_PUBLIC_POSTHOG_KEY;
@@ -258,6 +259,20 @@ export default function OnboardingFlow() {
               </Link>
             </div>
           )}
+        </div>
+      )}
+
+      {/* step 3 — optional history import (once a key exists) */}
+      {key && (phase === "ready" || phase === "received") && (
+        <div className="border-t border-hair pt-5">
+          <div className="text-[10px] uppercase tracking-label text-muted mb-2.5">
+            3 · import past sessions <span className="text-faint normal-case tracking-normal">(optional)</span>
+          </div>
+          <p className="text-[12px] text-muted leading-relaxed max-w-md mb-3">
+            Already used Claude Code before installing? Pull your existing sessions in with one
+            command — your dashboard starts full instead of empty.
+          </p>
+          <BackfillCommand apiKey={key} apiUrl={API_URL} method={method} />
         </div>
       )}
     </div>
