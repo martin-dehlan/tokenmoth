@@ -14,9 +14,10 @@
 
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const DEFAULT_API: &str = "https://api.tokenmoth.dev";
 
@@ -72,6 +73,15 @@ enum Cmd {
         /// Parse + report what would be sent without POSTing.
         #[arg(long)]
         dry_run: bool,
+        /// Only send sessions whose repo basename matches (privacy: exclude work repos).
+        #[arg(long)]
+        repo: Option<String>,
+        /// Only send sessions ended on/after this date (e.g. 2026-01-01). ISO prefix compare.
+        #[arg(long)]
+        since: Option<String>,
+        /// Skip the confirmation prompt.
+        #[arg(long)]
+        yes: bool,
     },
 }
 
@@ -81,7 +91,9 @@ fn main() {
         Cmd::Setup { key, api_url, local } => cmd_setup(key, api_url, *local),
         Cmd::Uninstall { local } => cmd_uninstall(*local),
         Cmd::Report { key, api_url, detach } => cmd_report(key, api_url, *detach),
-        Cmd::Backfill { key, api_url, dry_run } => cmd_backfill(key, api_url, *dry_run),
+        Cmd::Backfill { key, api_url, dry_run, repo, since, yes } => {
+            cmd_backfill(key, api_url, *dry_run, repo.as_deref(), since.as_deref(), *yes)
+        }
     };
     if let Err(e) = r {
         // A hook must never break the user's session — log to stderr and exit 0.
@@ -298,7 +310,14 @@ fn post_telemetry(
 /// gain the plugin overhead breakdown. Idempotent — the API upserts by session
 /// id — and each session keeps its real end time (sent as `ended_at`), so the
 /// timeline is preserved. Per-file failures are counted, never fatal.
-fn cmd_backfill(key: &str, api_url: &str, dry_run: bool) -> anyhow::Result<()> {
+fn cmd_backfill(
+    key: &str,
+    api_url: &str,
+    dry_run: bool,
+    repo_filter: Option<&str>,
+    since: Option<&str>,
+    yes: bool,
+) -> anyhow::Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve home dir"))?;
     let base = std::env::var_os("CLAUDE_CONFIG_DIR")
         .map(PathBuf::from)
@@ -339,6 +358,20 @@ fn cmd_backfill(key: &str, api_url: &str, dry_run: bool) -> anyhow::Result<()> {
             continue;
         };
         let repo = resolve_repo(None, &p.cwd_counts);
+        // Privacy/scoping filters (apply before the payload is even built).
+        if let Some(want) = repo_filter {
+            if repo != want {
+                continue;
+            }
+        }
+        if let Some(cutoff) = since {
+            // ISO-8601 timestamps order lexically, so a prefix compare against a
+            // YYYY-MM-DD cutoff is correct. No timestamp → treat as before cutoff.
+            match p.last_ts.as_deref() {
+                Some(ts) if ts >= cutoff => {}
+                _ => continue,
+            }
+        }
         let mcp = mcp_servers(None, &p.cwd_counts);
         let score = p.input + p.output + p.cread + p.ccreate + p.overhead;
         let body = telemetry_body(&session_id, &repo, &p, p.last_ts.as_deref(), &mcp);
@@ -350,33 +383,129 @@ fn cmd_backfill(key: &str, api_url: &str, dry_run: bool) -> anyhow::Result<()> {
     }
 
     let sessions: Vec<Backfilled> = best.into_values().collect();
-    println!("{} unique session(s) to backfill ({} file(s) skipped: no session id / unreadable)",
-        sessions.len(), skipped);
+    let total = sessions.len();
+    if total == 0 {
+        println!("nothing to backfill after filters ({skipped} file(s) skipped).");
+        return Ok(());
+    }
+
+    // Compact summary (repo + count) — never dump per-session detail, which on a
+    // large history is noise and leaks repo names line by line.
+    let mut by_repo: BTreeMap<&str, u32> = BTreeMap::new();
+    for s in &sessions {
+        *by_repo.entry(s.repo.as_str()).or_default() += 1;
+    }
+    println!(
+        "{total} unique session(s) across {} repo(s) ({skipped} file(s) skipped):",
+        by_repo.len()
+    );
+    for (repo, n) in &by_repo {
+        println!("  {repo}: {n}");
+    }
+
+    if dry_run {
+        println!("dry run — nothing sent.");
+        return Ok(());
+    }
+
+    // Last chance to bail before anything leaves the machine.
+    if !yes && !confirm(&format!("Send {total} session(s) to {api_url}?")) {
+        println!("aborted.");
+        return Ok(());
+    }
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(Duration::from_secs(15))
         .build()?;
-    let total = sessions.len();
     let (mut sent, mut failed) = (0u32, 0u32);
     for (i, s) in sessions.iter().enumerate() {
-        if dry_run {
-            println!("  [{}/{}] {} overhead~{} {}", i + 1, total, s.repo,
-                s.body["hook_overhead_tokens"], s.body["hook_overhead_breakdown"]);
+        if post_with_retry(&client, api_url, key, &s.body) {
             sent += 1;
-            continue;
+        } else {
+            failed += 1;
         }
-        match post_telemetry(&client, api_url, key, &s.body) {
-            Ok(true) => sent += 1,
-            Ok(false) | Err(_) => failed += 1,
-        }
-        // Gentle pace to stay under the API's per-minute rate limit.
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        // Gentle pace to stay under the API's per-minute rate limit (retries on
+        // 429 add their own backoff on top).
+        std::thread::sleep(Duration::from_millis(500));
         if (i + 1) % 25 == 0 {
             println!("  …{}/{total} (sent {sent}, failed {failed})", i + 1);
         }
     }
     println!("✓ backfill done — sent {sent}, failed {failed}, skipped {skipped}");
+    if failed > 0 {
+        eprintln!(
+            "{failed} session(s) failed to send. Re-running is safe (idempotent) — \
+             already-sent sessions won't be duplicated."
+        );
+        std::process::exit(1);
+    }
     Ok(())
+}
+
+/// Prompt y/N on the terminal. Any non-affirmative answer (incl. EOF) → false.
+fn confirm(prompt: &str) -> bool {
+    print!("{prompt} [y/N] ");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    if std::io::stdin().read_line(&mut line).is_err() {
+        return false;
+    }
+    matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
+/// POST one session with bounded retries. The plain `post_telemetry` maps every
+/// non-2xx (incl. 429) to failure with no retry, which on a bulk run silently
+/// drops sessions the moment the per-minute limit trips. Here:
+///   * 2xx                  → success
+///   * 429 / 5xx / network  → back off and retry (honors `Retry-After` on 429)
+///   * other 4xx            → permanent, no retry (e.g. 401 bad key, 400 payload)
+fn post_with_retry(client: &reqwest::blocking::Client, api_url: &str, key: &str, body: &Value) -> bool {
+    const MAX_ATTEMPTS: u32 = 5;
+    let url = format!("{}/v1/telemetry", api_url.trim_end_matches('/'));
+    for attempt in 0..MAX_ATTEMPTS {
+        let last = attempt + 1 == MAX_ATTEMPTS;
+        match client.post(&url).bearer_auth(key).json(body).send() {
+            Ok(res) => {
+                let status = res.status();
+                if status.is_success() {
+                    return true;
+                }
+                // Permanent client errors (except 429) won't change on retry.
+                if status.is_client_error() && status.as_u16() != 429 {
+                    return false;
+                }
+                if last {
+                    return false;
+                }
+                let wait = retry_after(&res).unwrap_or_else(|| backoff(attempt));
+                std::thread::sleep(wait);
+            }
+            Err(_) => {
+                if last {
+                    return false;
+                }
+                std::thread::sleep(backoff(attempt));
+            }
+        }
+    }
+    false
+}
+
+/// Exponential backoff: 1s, 2s, 4s, 8s … capped at 30s.
+fn backoff(attempt: u32) -> Duration {
+    Duration::from_secs((1u64 << attempt.min(5)).min(30))
+}
+
+/// Parse a numeric `Retry-After: <seconds>` header into a wait duration.
+fn retry_after(res: &reqwest::blocking::Response) -> Option<Duration> {
+    res.headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
 }
 
 /// One deduped session ready to (re-)ingest.
@@ -832,6 +961,23 @@ fn resolve_repo(hook_cwd: Option<&str>, cwd_counts: &HashMap<String, i64>) -> St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backoff_grows_then_caps() {
+        assert_eq!(backoff(0), Duration::from_secs(1));
+        assert_eq!(backoff(1), Duration::from_secs(2));
+        assert_eq!(backoff(2), Duration::from_secs(4));
+        assert_eq!(backoff(3), Duration::from_secs(8));
+        // capped at 30s no matter how high the attempt count climbs
+        assert_eq!(backoff(10), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn iso_since_prefix_compare() {
+        // The --since filter relies on lexical ordering of ISO-8601 timestamps.
+        assert!("2026-03-04T12:00:00Z" >= "2026-01-01");
+        assert!("2025-12-31T23:59:59Z" < "2026-01-01");
+    }
 
     #[test]
     fn aggregates_usage_and_takes_last_model() {
