@@ -82,6 +82,9 @@ enum Cmd {
         /// Skip the confirmation prompt.
         #[arg(long)]
         yes: bool,
+        /// Ignore the saved cutoff and re-send the full history.
+        #[arg(long)]
+        full: bool,
     },
 }
 
@@ -91,8 +94,8 @@ fn main() {
         Cmd::Setup { key, api_url, local } => cmd_setup(key, api_url, *local),
         Cmd::Uninstall { local } => cmd_uninstall(*local),
         Cmd::Report { key, api_url, detach } => cmd_report(key, api_url, *detach),
-        Cmd::Backfill { key, api_url, dry_run, repo, since, yes } => {
-            cmd_backfill(key, api_url, *dry_run, repo.as_deref(), since.as_deref(), *yes)
+        Cmd::Backfill { key, api_url, dry_run, repo, since, yes, full } => {
+            cmd_backfill(key, api_url, *dry_run, repo.as_deref(), since.as_deref(), *yes, *full)
         }
     };
     if let Err(e) = r {
@@ -317,12 +320,29 @@ fn cmd_backfill(
     repo_filter: Option<&str>,
     since: Option<&str>,
     yes: bool,
+    full: bool,
 ) -> anyhow::Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve home dir"))?;
     let base = std::env::var_os("CLAUDE_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".claude"))
         .join("projects");
+
+    // Effective cutoff: an explicit --since always wins; otherwise re-use the
+    // saved cutoff from the last successful backfill (per api_url) so a re-run
+    // only sends sessions newer than what already landed. --full ignores it.
+    let saved_cutoff = if since.is_none() && !full {
+        read_cutoff(api_url)
+    } else {
+        None
+    };
+    let effective_since: Option<&str> = since.or(saved_cutoff.as_deref());
+    if since.is_none() && saved_cutoff.is_some() {
+        println!(
+            "resuming from saved cutoff {} (use --full to re-send everything)",
+            effective_since.unwrap_or("")
+        );
+    }
 
     let mut transcripts = Vec::new();
     collect_jsonl(&base, &mut transcripts);
@@ -364,7 +384,7 @@ fn cmd_backfill(
                 continue;
             }
         }
-        if let Some(cutoff) = since {
+        if let Some(cutoff) = effective_since {
             // ISO-8601 timestamps order lexically, so a prefix compare against a
             // YYYY-MM-DD cutoff is correct. No timestamp → treat as before cutoff.
             match p.last_ts.as_deref() {
@@ -375,7 +395,7 @@ fn cmd_backfill(
         let mcp = mcp_servers(None, &p.cwd_counts);
         let score = p.input + p.output + p.cread + p.ccreate + p.overhead;
         let body = telemetry_body(&session_id, &repo, &p, p.last_ts.as_deref(), &mcp);
-        let entry = Backfilled { repo, score, body };
+        let entry = Backfilled { repo, score, body, ended_at: p.last_ts.clone() };
         match best.get(&session_id) {
             Some(prev) if prev.score >= score => {}
             _ => { best.insert(session_id, entry); }
@@ -414,6 +434,10 @@ fn cmd_backfill(
         return Ok(());
     }
 
+    // The newest end time in this batch — saved as the cutoff once everything
+    // lands so the next run skips straight to newer sessions.
+    let batch_max = sessions.iter().filter_map(|s| s.ended_at.clone()).max();
+
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()?;
@@ -439,6 +463,42 @@ fn cmd_backfill(
         );
         std::process::exit(1);
     }
+    // Only advance the cutoff on a fully clean run — a partial failure must stay
+    // re-sendable on the next pass.
+    if let Some(ts) = batch_max {
+        if let Err(e) = write_cutoff(api_url, &ts) {
+            eprintln!("note: couldn't save backfill cutoff: {e}");
+        }
+    }
+    Ok(())
+}
+
+/// Per-machine state file recording the last backfill cutoff for each api_url,
+/// so re-runs only send newer sessions. Keyed by api_url to keep dev/prod and
+/// multiple accounts from clobbering each other's progress.
+fn cutoff_state_path() -> Option<PathBuf> {
+    Some(dirs::home_dir()?.join(".tokenmoth").join("backfill-state.json"))
+}
+
+fn read_cutoff(api_url: &str) -> Option<String> {
+    let raw = std::fs::read_to_string(cutoff_state_path()?).ok()?;
+    let v: Value = serde_json::from_str(&raw).ok()?;
+    v.get(api_url)?.as_str().map(str::to_string)
+}
+
+fn write_cutoff(api_url: &str, ts: &str) -> anyhow::Result<()> {
+    let path = cutoff_state_path().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+    let mut v: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| json!({}));
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert(api_url.to_string(), json!(ts));
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&v)? + "\n")?;
     Ok(())
 }
 
@@ -513,6 +573,7 @@ struct Backfilled {
     repo: String,
     score: i64,
     body: Value,
+    ended_at: Option<String>,
 }
 
 /// Recursively collect `*.jsonl` files under `dir` (empty on I/O error).
