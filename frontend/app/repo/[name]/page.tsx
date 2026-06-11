@@ -2,7 +2,7 @@ import Link from "next/link";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import SessionList from "@/components/SessionList";
-import { fetchRepoSeries, fetchSessions, fmtTokens, fmtChartLabel } from "@/lib/data";
+import { fetchRepoSeries, fetchSessions, fmtTokens, fmtChartLabel, padSeriesToWindow } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +40,7 @@ export default async function RepoDetail({
     { tokens: 0, sessions: 0, input: 0, output: 0, cread: 0, ccreate: 0 },
   );
   const activeDays = Math.max(1, points.length);
+  const chartPoints = padSeriesToWindow(points, since);
 
   const breakdown = [
     { label: "input", v: sum.input, color: "#1a7f64" },
@@ -88,16 +89,17 @@ export default async function RepoDetail({
             </div>
           </section>
 
-          {/* CHART */}
+          {/* CHART — zero-filled across the full window so the x-axis always
+              spans the selected range, not just where data happens to exist. */}
           <section className="px-8 py-6 border-t border-hair">
             {points.length > 0 ? (
               <AnnotatedChart
                 series={[
-                  { name: "total", color: "#1a7f64", values: points.map((p) => p.totalTokens) },
-                  { name: "input", color: "#1a4f7f", dashed: true, values: points.map((p) => p.inputTokens) },
-                  { name: "output", color: "#9a6200", dashed: true, values: points.map((p) => p.outputTokens) },
+                  { name: "total", color: "#1a7f64", values: chartPoints.map((p) => p.totalTokens) },
+                  { name: "input", color: "#1a4f7f", dashed: true, values: chartPoints.map((p) => p.inputTokens) },
+                  { name: "output", color: "#9a6200", dashed: true, values: chartPoints.map((p) => p.outputTokens) },
                 ]}
-                xLabels={points.map((p) => fmtChartLabel(p.day, since))}
+                xLabels={chartPoints.map((p) => fmtChartLabel(p.day, since))}
                 format={fmtTokens}
               />
             ) : (
