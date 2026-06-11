@@ -4,5 +4,10 @@
 // per route (see #127). Tailwind scans this literal, so the class is generated.
 export const PAGE_MAX_W = "max-w-7xl";
 
-// Convenience for the page <main> wrapper (mx-auto + width + horizontal padding).
-export const PAGE_MAIN = `mx-auto ${PAGE_MAX_W} px-5`;
+// Convenience for the page <main> wrapper. NOTE the `w-full`: <main> is a flex
+// item (child of the layout's `flex-1 flex flex-col`), and `mx-auto` on a flex
+// item disables align-items:stretch, so without an explicit width the element
+// shrinks to its content — making content-light pages (detail views, the
+// loading skeleton) render narrower than the dashboard. `w-full` pins it to the
+// full column (capped by max-w-7xl) so every page is the same width.
+export const PAGE_MAIN = `mx-auto w-full ${PAGE_MAX_W} px-5`;
