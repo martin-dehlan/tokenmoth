@@ -4,6 +4,7 @@ import RoiBadge from "@/components/RoiBadge";
 import ModelBreakdown from "@/components/ModelBreakdown";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
+import Optimizer from "@/components/Optimizer";
 import Landing from "@/components/Landing";
 import { fetchDashboard, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow, chartUnitLabel, distinctDays } from "@/lib/data";
 import { PAGE_MAIN } from "@/lib/ui";
@@ -30,7 +31,7 @@ export default async function Dashboard({
 
   const token = session.access_token;
 
-  const { repos, series, models, trends, apiCostUsd, source, error } =
+  const { repos, series, models, trends, apiCostUsd, overheadByHook, mcpUsage, avgBaselineTokens, source, error } =
     await fetchDashboard(token, since);
   const live = source === "live";
 
@@ -42,6 +43,10 @@ export default async function Dashboard({
   const ranked = [...repos].sort((a, b) => b.totalTokens - a.totalTokens);
   const activeDays = Math.max(1, distinctDays(series));
   const avgPerDay = grandTokens / activeDays;
+  // Calendar length of the window for the optimizer's monthly projection
+  // ("at this pace") — falls back to active days for "all".
+  const win = /^(\d+)([hd])$/.exec(since);
+  const windowDays = win ? (win[2] === "h" ? Number(win[1]) / 24 : Number(win[1])) : activeDays;
 
   return (
     <>
@@ -132,6 +137,24 @@ export default async function Dashboard({
             <section className="px-8 pt-7 pb-7 border-t border-hair">
               <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">by model</h2>
               <ModelBreakdown models={models} />
+            </section>
+          )}
+
+          {/* OPTIMIZER — what to act on, ordered by impact (#153/#154) */}
+          {(mcpUsage.length > 0 || overheadByHook.length > 0) && (
+            <section className="px-8 pt-7 pb-7 border-t border-hair">
+              <div className="flex items-baseline justify-between mb-4">
+                <h2 className="text-[10px] uppercase tracking-label text-muted">optimizer</h2>
+                <span className="text-[10px] tracking-label text-faint">
+                  last {since} · what to disable
+                </span>
+              </div>
+              <Optimizer
+                mcpUsage={mcpUsage}
+                hooks={overheadByHook}
+                windowDays={windowDays}
+                avgBaselineTokens={avgBaselineTokens}
+              />
             </section>
           )}
 

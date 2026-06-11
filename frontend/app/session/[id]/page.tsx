@@ -1,6 +1,7 @@
 import Link from "next/link";
 import TopRail from "@/components/TopRail";
 import HookBreakdown from "@/components/HookBreakdown";
+import CostAnatomy from "@/components/CostAnatomy";
 import { fetchSession, fmtTokens, relativeTime, type HookOverhead } from "@/lib/data";
 import { PAGE_MAIN } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
@@ -39,6 +40,12 @@ export default async function SessionDetail({ params }: { params: { id: string }
     .sort((a, b) => b[1] - a[1])
     .map(([hook, tokens]) => ({ hook, tokens, sessions: 1 }));
 
+  // Cost Anatomy (#152) needs per-turn data — rows from older CLI versions
+  // (turnCount 0) fall back to the pre-anatomy view.
+  const hasAnatomy = s.turnCount > 0;
+  // MCP servers: union of "loaded" (log dirs) and "called" (transcript) (#153).
+  const mcpNames = Array.from(new Set([...s.mcpServers, ...Object.keys(s.mcpCalls)])).sort();
+
   return (
     <>
       <TopRail active="usage" since="30d" />
@@ -64,15 +71,45 @@ export default async function SessionDetail({ params }: { params: { id: string }
                 </div>
               </div>
               <ul className="flex flex-wrap gap-x-8 gap-y-2.5 lg:pb-2">
+                {hasAnatomy && (
+                  <>
+                    <Annotation
+                      label="baseline / call"
+                      value={fmtTokens(s.baselineTokens)}
+                      accent
+                    />
+                    <Annotation label="API calls" value={`${s.turnCount}`} />
+                  </>
+                )}
                 <Annotation
-                  label="overhead"
+                  label="hook overhead"
                   value={`~${overheadPct}% · ${fmtTokens(s.hookOverheadTokens)}`}
-                  accent
                 />
                 <Annotation label="plugins / hooks" value={`${hooks.length}`} />
               </ul>
             </div>
           </section>
+
+          {/* COST ANATOMY — where this session's tokens actually went (#152) */}
+          {hasAnatomy && (
+            <section className="px-8 pt-7 pb-7 border-t border-hair">
+              <div className="flex items-baseline justify-between mb-4">
+                <h2 className="text-[10px] uppercase tracking-label text-muted">cost anatomy</h2>
+                <span className="text-[10px] tracking-label text-faint">
+                  measured per API call · what to shrink
+                </span>
+              </div>
+              <CostAnatomy
+                turnUsage={s.turnUsage}
+                baselineTokens={s.baselineTokens}
+                turnCount={s.turnCount}
+                inputTokens={s.inputTokens}
+                outputTokens={s.outputTokens}
+                cacheReadTokens={s.cacheReadTokens}
+                cacheCreationTokens={s.cacheCreationTokens}
+              />
+            </section>
+          )}
 
           {/* PLUGIN / HOOK OVERHEAD */}
           <section className="px-8 pt-7 pb-7 border-t border-hair">
@@ -93,31 +130,53 @@ export default async function SessionDetail({ params }: { params: { id: string }
             )}
           </section>
 
-          {/* MCP SERVERS — names only; per-server token cost isn't separable (#106) */}
-          {s.mcpServers.length > 0 && (
+          {/* MCP SERVERS — loaded vs actually called (#153) */}
+          {mcpNames.length > 0 && (
             <section className="px-8 pt-7 pb-7 border-t border-hair">
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="text-[10px] uppercase tracking-label text-muted">
                   MCP servers active
                 </h2>
                 <span className="text-[10px] tracking-label text-faint">
-                  {s.mcpServers.length} loaded
+                  {mcpNames.length} loaded
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {s.mcpServers.map((m) => (
-                  <span
-                    key={m}
-                    className="text-[11px] font-mono text-muted border border-hair rounded-btn px-2 py-1"
-                  >
-                    {m}
-                  </span>
-                ))}
+                {mcpNames.map((m) => {
+                  const calls = s.mcpCalls[m] ?? 0;
+                  const dead = hasAnatomy && calls === 0;
+                  return (
+                    <span
+                      key={m}
+                      className={`text-[11px] font-mono border rounded-btn px-2 py-1 ${
+                        dead ? "text-warn border-warn" : "text-muted border-hair"
+                      }`}
+                      title={dead ? "loaded but never called this session" : undefined}
+                    >
+                      {m}
+                      {hasAnatomy && (
+                        <span className={`ml-1.5 tabular-nums ${dead ? "" : "text-faint"}`}>
+                          {calls === 0 ? "0 calls" : `${calls}×`}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
               </div>
               <p className="mt-3 text-[10px] text-faint leading-relaxed max-w-prose">
-                Per-server token cost isn&apos;t separately measurable — MCP tool schemas are
-                injected into the request, not the transcript. That cost is already counted in
-                this session&apos;s totals above.
+                {hasAnatomy ? (
+                  <>
+                    Every loaded server&apos;s tool schemas sit in the {fmtTokens(s.baselineTokens)}{" "}
+                    baseline re-read on each of the {s.turnCount} calls — servers at 0 calls paid
+                    that price for nothing this session.
+                  </>
+                ) : (
+                  <>
+                    Per-server token cost isn&apos;t separately measurable — MCP tool schemas are
+                    injected into the request, not the transcript. That cost is already counted in
+                    this session&apos;s totals above.
+                  </>
+                )}
               </p>
             </section>
           )}
