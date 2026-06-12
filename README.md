@@ -25,6 +25,17 @@ tokenmoth-api (Axum)  ──upsert (UNIQUE session_id)──►  Postgres
 Next.js fuse-box dashboard
 ```
 
+## Privacy — what leaves your machine
+
+Transcripts are parsed **locally**; one aggregated summary per session is sent:
+session id, repo **basename** (never the absolute path), model names, token counts,
+hook/MCP names with overhead counts, and a downsampled per-turn token series.
+Never sent: transcript content, prompts, code, file paths, usernames, env vars.
+The payload is a whitelist enforced by a unit test
+(`telemetry_body_only_whitelisted_fields_no_absolute_path`). Full dev-readable
+breakdown: [tokenmoth.com/data](https://tokenmoth.com/data). Zero-trust option:
+self-host (below) and point the CLI at your own API.
+
 ## Repo layout
 
 ```
