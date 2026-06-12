@@ -43,13 +43,14 @@ export default function Landing() {
 
   // Click 1: sign in. After OAuth we land on /onboarding, which generates the
   // key and shows the copy-ready command (clicks 2 + 3 happen there).
-  async function getKey() {
+  async function getKey(provider: "github" | "google") {
     setBusy(true);
     setErr(null);
-    if (PH && readConsent() === "granted") posthog.capture("landing_get_key_clicked");
+    if (PH && readConsent() === "granted")
+      posthog.capture("landing_get_key_clicked", { provider });
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
+      provider,
       options: { redirectTo: `${window.location.origin}/auth/callback?next=/onboarding` },
     });
     if (error) {
@@ -113,12 +114,19 @@ export default function Landing() {
 
             <div className="mt-6 flex items-center gap-4 flex-wrap">
               <button
-                onClick={getKey}
+                onClick={() => getKey("github")}
                 disabled={busy}
                 className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-opacity hover:opacity-90 active:translate-y-px disabled:opacity-60"
               >
-                {busy ? "redirecting…" : "Get your key"}
+                {busy ? "redirecting…" : "Get your key with GitHub"}
                 <span aria-hidden>→</span>
+              </button>
+              <button
+                onClick={() => getKey("google")}
+                disabled={busy}
+                className="text-[12px] text-muted underline decoration-dotted underline-offset-2 hover:text-ink transition-colors disabled:opacity-60"
+              >
+                or use Google
               </button>
               <Link
                 href="/data"
