@@ -30,7 +30,13 @@ export default function Onboarding() {
             </h1>
             <p className="mt-3 text-[13px] text-muted max-w-md leading-relaxed">
               Two steps — install the CLI, then just keep coding. Your tokens show up here
-              automatically.
+              automatically.{" "}
+              <Link
+                href="/data"
+                className="text-faint underline decoration-dotted underline-offset-2 hover:text-muted transition-colors"
+              >
+                What gets sent?
+              </Link>
             </p>
             <div className="mt-7">
               <OnboardingFlow />

@@ -32,6 +32,9 @@ export default function Footer() {
         <span className="text-muted">
           © {new Date().getFullYear()} {site.name}
         </span>
+        <Link href="/data" className="text-muted hover:text-ink transition-colors">
+          {locale === "de" ? "Gesendete Daten" : "Data we send"}
+        </Link>
         {LINKS[locale].map((l) => (
           <Link
             key={l.slug}
