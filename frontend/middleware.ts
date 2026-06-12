@@ -46,9 +46,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Public routes reachable without a session: the landing page and the legal
-  // pages under every locale (Impressum/Datenschutz must be public — #111/#112).
-  const isPublic = path === "/" || PUBLIC_LEGAL.has(path);
+  // Public routes reachable without a session: the landing page, the legal
+  // pages under every locale (Impressum/Datenschutz must be public — #111/#112),
+  // and the data-transparency page (#183) — its whole point is pre-signup trust.
+  const isPublic = path === "/" || path === "/data" || PUBLIC_LEGAL.has(path);
 
   // Gate everything the matcher covers (login + /auth/* are excluded below).
   // The root path is public: it serves the marketing landing page to guests
