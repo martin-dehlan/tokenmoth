@@ -1136,8 +1136,13 @@ async fn dashboard(
     let cutoff = parse_since(&since)
         .ok_or((StatusCode::BAD_REQUEST, "invalid `since` (use 24h|7d|30d|90d|all)".to_string()))?;
 
+    // The seven blocks below are independent reads over (user_id, cutoff); run
+    // them concurrently via try_join! so wall time is bounded by the slowest
+    // query, not the sum (#audit perf). With TOKENMOTH_DB_MAX_CONN=1 they
+    // serialize on the pool exactly as before — strictly no worse.
+
     // 1) per-repo rollups
-    let repo_rows: Vec<RepoRow> = sqlx::query_as(
+    let repo_fut = sqlx::query_as::<_, RepoRow>(
         r#"
         select repo,
                count(*)::bigint                                   as sessions,
@@ -1152,21 +1157,11 @@ async fn dashboard(
         group by repo order by last_active desc limit 500
         "#,
     )
-    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
-    let repos = repo_rows
-        .into_iter()
-        .map(|r| RepoOut {
-            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
-            estimated_cost_usd: cost_usd(r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens),
-            repo: r.repo, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
-            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens,
-            hook_overhead_tokens: r.hook_overhead_tokens, last_active: r.last_active,
-        })
-        .collect();
+    .bind(user_id).bind(cutoff).fetch_all(&st.db);
 
     // 2) account-wide daily series
     let unit = determine_grouping_unit(&since);
-    let series_rows: Vec<SeriesRow> = sqlx::query_as(
+    let series_fut = sqlx::query_as::<_, SeriesRow>(
         r#"
         select date_trunc($3, ended_at)                          as day,
                count(*)::bigint                                   as sessions,
@@ -1179,36 +1174,11 @@ async fn dashboard(
         group by day order by day asc
         "#,
     )
-    .bind(user_id).bind(cutoff).bind(unit).fetch_all(&st.db).await.map_err(internal)?;
-    let series = series_rows
-        .into_iter()
-        .map(|r| SeriesPoint {
-            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
-            estimated_cost_usd: cost_usd(r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens),
-            day: r.day, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
-            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens,
-        })
-        .collect();
+    .bind(user_id).bind(cutoff).bind(unit).fetch_all(&st.db);
 
     // 3) per-model rollups
-    let model_rows: Vec<ModelRow> = sqlx::query_as(
-        MODEL_ROLLUP_SQL,
-    )
-    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
-    // API-equivalent cost, priced per model (#72/#73), summed then rounded to cents.
-    let api_cost_raw: f64 = model_rows
-        .iter()
-        .map(|r| cost_for(Some(&r.model), r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens))
-        .sum();
-    let api_cost_usd = (api_cost_raw * 100.0).round() / 100.0;
-    let models = model_rows
-        .into_iter()
-        .map(|r| ModelOut {
-            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
-            model: r.model, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
-            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens,
-        })
-        .collect();
+    let model_fut = sqlx::query_as::<_, ModelRow>(MODEL_ROLLUP_SQL)
+        .bind(user_id).bind(cutoff).fetch_all(&st.db);
 
     // 4) trends (period-over-period + projection)
     let dur = parse_window_duration(&since);
@@ -1217,7 +1187,7 @@ async fn dashboard(
     let cur_start = dur.map(|d| now - d).unwrap_or(epoch);
     let prev_start = dur.map(|d| now - d * 2).unwrap_or(epoch);
     let has_previous = dur.is_some();
-    let trow: TrendRow = sqlx::query_as(
+    let trend_fut = sqlx::query_as::<_, TrendRow>(
         r#"
         with t as (
             select ended_at, (input_tokens + output_tokens + cache_creation_input_tokens) as tok
@@ -1232,28 +1202,10 @@ async fn dashboard(
         from t
         "#,
     )
-    .bind(user_id).bind(cur_start).bind(prev_start).fetch_one(&st.db).await.map_err(internal)?;
-    let delta_pct = if has_previous && trow.previous_tokens > 0 {
-        Some(((trow.current_tokens - trow.previous_tokens) as f64 / trow.previous_tokens as f64 * 1000.0).round() / 10.0)
-    } else {
-        None
-    };
-    let days = dur.map(|d| d.num_days().max(1)).unwrap_or(30);
-    let daily_avg = trow.current_tokens / days;
-    let trends = TrendsOut {
-        since: since.clone(),
-        current_tokens: trow.current_tokens,
-        previous_tokens: trow.previous_tokens,
-        has_previous,
-        delta_pct,
-        current_sessions: trow.current_sessions,
-        previous_sessions: trow.previous_sessions,
-        daily_avg_tokens: daily_avg,
-        projected_monthly_tokens: daily_avg * 30,
-    };
+    .bind(user_id).bind(cur_start).bind(prev_start).fetch_one(&st.db);
 
     // 5) overhead aggregated per hook/plugin across the window (#85)
-    let overhead_by_hook: Vec<HookOverheadOut> = sqlx::query_as(
+    let hook_fut = sqlx::query_as::<_, HookOverheadOut>(
         r#"
         select key as hook,
                coalesce(sum(value::bigint), 0)::bigint as tokens,
@@ -1264,12 +1216,12 @@ async fn dashboard(
         order by tokens desc
         "#,
     )
-    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
+    .bind(user_id).bind(cutoff).fetch_all(&st.db);
 
     // 6) MCP servers: loaded vs actually called (#153). Restricted to rows from
     // a call-tracking CLI (turn_count > 0) — see McpUsageOut. The union covers
     // servers that were called but missed by load detection.
-    let mcp_usage: Vec<McpUsageOut> = sqlx::query_as(
+    let mcp_fut = sqlx::query_as::<_, McpUsageOut>(
         r#"
         with s as (
             select session_id, mcp_servers, mcp_calls
@@ -1291,10 +1243,10 @@ async fn dashboard(
         order by sessions_loaded desc, server
         "#,
     )
-    .bind(user_id).bind(cutoff).fetch_all(&st.db).await.map_err(internal)?;
+    .bind(user_id).bind(cutoff).fetch_all(&st.db);
 
     // 7) avg measured baseline across call-tracking sessions (#152)
-    let avg_baseline_tokens: i64 = sqlx::query_scalar(
+    let baseline_fut = sqlx::query_scalar::<_, i64>(
         r#"
         select coalesce(avg(baseline_tokens), 0)::bigint
         from token_logs
@@ -1302,7 +1254,66 @@ async fn dashboard(
           and turn_count > 0 and baseline_tokens > 0
         "#,
     )
-    .bind(user_id).bind(cutoff).fetch_one(&st.db).await.map_err(internal)?;
+    .bind(user_id).bind(cutoff).fetch_one(&st.db);
+
+    let (repo_rows, series_rows, model_rows, trow, overhead_by_hook, mcp_usage, avg_baseline_tokens) =
+        tokio::try_join!(repo_fut, series_fut, model_fut, trend_fut, hook_fut, mcp_fut, baseline_fut)
+            .map_err(internal)?;
+
+    let repos = repo_rows
+        .into_iter()
+        .map(|r| RepoOut {
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
+            estimated_cost_usd: cost_usd(r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens),
+            repo: r.repo, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens,
+            hook_overhead_tokens: r.hook_overhead_tokens, last_active: r.last_active,
+        })
+        .collect();
+
+    let series = series_rows
+        .into_iter()
+        .map(|r| SeriesPoint {
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
+            estimated_cost_usd: cost_usd(r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens),
+            day: r.day, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens,
+        })
+        .collect();
+
+    // API-equivalent cost, priced per model (#72/#73), summed then rounded to cents.
+    let api_cost_raw: f64 = model_rows
+        .iter()
+        .map(|r| cost_for(Some(&r.model), r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_creation_tokens))
+        .sum();
+    let api_cost_usd = (api_cost_raw * 100.0).round() / 100.0;
+    let models = model_rows
+        .into_iter()
+        .map(|r| ModelOut {
+            total_tokens: r.input_tokens + r.output_tokens + r.cache_creation_tokens,
+            model: r.model, sessions: r.sessions, input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+            cache_read_tokens: r.cache_read_tokens, cache_creation_tokens: r.cache_creation_tokens,
+        })
+        .collect();
+
+    let delta_pct = if has_previous && trow.previous_tokens > 0 {
+        Some(((trow.current_tokens - trow.previous_tokens) as f64 / trow.previous_tokens as f64 * 1000.0).round() / 10.0)
+    } else {
+        None
+    };
+    let days = dur.map(|d| d.num_days().max(1)).unwrap_or(30);
+    let daily_avg = trow.current_tokens / days;
+    let trends = TrendsOut {
+        since: since.clone(),
+        current_tokens: trow.current_tokens,
+        previous_tokens: trow.previous_tokens,
+        has_previous,
+        delta_pct,
+        current_sessions: trow.current_sessions,
+        previous_sessions: trow.previous_sessions,
+        daily_avg_tokens: daily_avg,
+        projected_monthly_tokens: daily_avg * 30,
+    };
 
     Ok(Json(DashboardResponse {
         since, repos, series, models, trends, api_cost_usd, overhead_by_hook,

@@ -40,6 +40,9 @@ v = {
     "POSTHOG_HOST":            d.get("POSTHOG_HOST", "https://eu.i.posthog.com"),
     "TOKENMOTH_ADMIN_TOKEN":   d["TOKENMOTH_ADMIN_TOKEN"],
     "TOKENMOTH_RATE_PER_MIN":  "120",
+    # 2 conns/container lets the dashboard's try_join! queries actually run in
+    # parallel; 6 reserved containers x 2 = 12, under the session pooler's 15.
+    "TOKENMOTH_DB_MAX_CONN":   "2",
     "RUST_LOG":                "tokenmoth_api=info",
 }
 # Single-user bootstrap (self-seeded API key on startup) is a dev/docker-compose
@@ -85,6 +88,30 @@ INT_ID="$(aws apigatewayv2 get-integrations --api-id "${API_ID}" --region "${REG
   --query 'Items[0].IntegrationId' --output text)"
 aws apigatewayv2 update-integration --api-id "${API_ID}" --integration-id "${INT_ID}" \
   --region "${REGION}" --integration-uri "${FN_ARN}" --payload-format-version 2.0 >/dev/null
+
+# Keep one container warm: scale-to-zero means every idle gap costs the next
+# user a ~600ms init + DB connect. EventBridge Scheduler pings /health every
+# 4 minutes (idempotent create-or-update; role is scoped to this function).
+echo "→ ensuring warm-keeper schedule…"
+WARM_ROLE="tokenmoth-warm-scheduler"
+WARM_ROLE_ARN="arn:aws:iam::${ACCOUNT}:role/${WARM_ROLE}"
+aws iam get-role --role-name "${WARM_ROLE}" >/dev/null 2>&1 || {
+  aws iam create-role --role-name "${WARM_ROLE}" --tags Key=Project,Value=tokenmoth \
+    --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"scheduler.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
+  aws iam put-role-policy --role-name "${WARM_ROLE}" --policy-name invoke-tokenmoth-api \
+    --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"${FN_ARN}\"}]}"
+  sleep 8  # IAM propagation before the schedule references the role
+}
+WARM_INPUT='{"version":"2.0","routeKey":"GET /health","rawPath":"/health","rawQueryString":"","headers":{"host":"warm.internal"},"requestContext":{"accountId":"warm","apiId":"warm","domainName":"warm.internal","http":{"method":"GET","path":"/health","protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"tokenmoth-warmer"},"requestId":"warm","routeKey":"GET /health","stage":"$default","time":"01/Jan/2026:00:00:00 +0000","timeEpoch":0},"isBase64Encoded":false}'
+if aws scheduler get-schedule --name tokenmoth-api-warm --region "${REGION}" >/dev/null 2>&1; then
+  aws scheduler update-schedule --name tokenmoth-api-warm --region "${REGION}" \
+    --schedule-expression "rate(4 minutes)" --flexible-time-window Mode=OFF \
+    --target "{\"Arn\":\"${FN_ARN}\",\"RoleArn\":\"${WARM_ROLE_ARN}\",\"Input\":$(printf '%s' "${WARM_INPUT}" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')}" >/dev/null
+else
+  aws scheduler create-schedule --name tokenmoth-api-warm --region "${REGION}" \
+    --schedule-expression "rate(4 minutes)" --flexible-time-window Mode=OFF \
+    --target "{\"Arn\":\"${FN_ARN}\",\"RoleArn\":\"${WARM_ROLE_ARN}\",\"Input\":$(printf '%s' "${WARM_INPUT}" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')}" >/dev/null
+fi
 
 ENDPOINT="$(aws apigatewayv2 get-api --api-id "${API_ID}" --region "${REGION}" --query ApiEndpoint --output text)"
 echo "✓ deployed. Public API: ${ENDPOINT}"
