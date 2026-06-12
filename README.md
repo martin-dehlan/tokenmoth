@@ -36,6 +36,13 @@ The payload is a whitelist enforced by a unit test
 breakdown: [tokenmoth.com/data](https://tokenmoth.com/data). Zero-trust option:
 self-host (below) and point the CLI at your own API.
 
+Verify it yourself — prints the exact payload for your most recent session,
+needs no key, sends nothing:
+
+```bash
+npx tokenmoth report --dry-run
+```
+
 ## Repo layout
 
 ```

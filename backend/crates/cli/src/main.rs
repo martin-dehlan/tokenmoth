@@ -66,6 +66,10 @@ enum Cmd {
         /// Re-spawn in the background and return immediately (used by the installed hook).
         #[arg(long)]
         detach: bool,
+        /// Print the exact payload for the most recent session instead of sending it.
+        /// Needs no key, reads no stdin, makes no network call.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// One-time: re-ingest every local transcript so historical sessions gain the
     /// plugin overhead breakdown. Idempotent (upserts by session id) and preserves
@@ -107,11 +111,17 @@ fn main() {
     // `report` runs inside a Claude Code hook and must NEVER fail the user's
     // session → log + exit 0. Every other subcommand is run by a human or an
     // install script and must exit non-zero on failure so callers can detect it.
-    let hook_invoked = matches!(cli.cmd, Cmd::Report { .. });
+    let hook_invoked = matches!(cli.cmd, Cmd::Report { dry_run: false, .. });
     let r = match &cli.cmd {
         Cmd::Setup { key, api_url, local } => cmd_setup(key, api_url, *local),
         Cmd::Uninstall { local } => cmd_uninstall(*local),
-        Cmd::Report { key, api_url, detach } => cmd_report(key.as_deref(), api_url, *detach),
+        Cmd::Report { key, api_url, detach, dry_run } => {
+            if *dry_run {
+                cmd_report_dry_run()
+            } else {
+                cmd_report(key.as_deref(), api_url, *detach)
+            }
+        }
         Cmd::Backfill { key, api_url, dry_run, repo, since, yes, full } => {
             cmd_backfill(key, api_url, *dry_run, repo.as_deref(), since.as_deref(), *yes, *full)
         }
@@ -383,6 +393,49 @@ fn cmd_report(key: Option<&str>, api_url: &str, detach: bool) -> anyhow::Result<
         return spawn_detached(&key, api_url, &buf);
     }
     process_report(&key, api_url, &buf)
+}
+
+/// `report --dry-run`: print the exact telemetry payload the most recent
+/// session would send, without sending it. The verifiable trust story for
+/// skeptics — no key, no stdin, no network call on this path.
+fn cmd_report_dry_run() -> anyhow::Result<()> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not resolve home dir"))?;
+    let base = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".claude"))
+        .join("projects");
+    let mut transcripts = Vec::new();
+    collect_jsonl(&base, &mut transcripts);
+    // Newest by mtime = the session the user just finished.
+    let newest = transcripts
+        .into_iter()
+        .filter_map(|p| {
+            let t = std::fs::metadata(&p).and_then(|m| m.modified()).ok()?;
+            Some((t, p))
+        })
+        .max_by_key(|(t, _)| *t);
+    let Some((_, path)) = newest else {
+        println!(
+            "no transcripts found under {} — finish a Claude Code session first.",
+            base.display()
+        );
+        return Ok(());
+    };
+    let resolver = PluginResolver::load();
+    let Some(p) = parse_transcript_file(&path, &resolver) else {
+        anyhow::bail!("could not parse {}", path.display());
+    };
+    let session_id = p.session_id.clone().unwrap_or_else(|| "<unknown>".into());
+    let repo = resolve_repo(None, &p.cwd_counts);
+    let mcp = mcp_servers(None, &p.cwd_counts);
+    let body = telemetry_body(&session_id, &repo, &p, p.last_ts.as_deref(), &mcp);
+    // Commentary on stderr so stdout stays pipeable JSON (e.g. `| jq`).
+    eprintln!(
+        "dry run — this is EVERYTHING `tokenmoth report` would send for your most \
+         recent session (repo: {repo}). Nothing was sent."
+    );
+    println!("{}", serde_json::to_string_pretty(&body)?);
+    Ok(())
 }
 
 /// Re-spawn `report` (without --detach) fully backgrounded, feeding the hook
