@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import MothLogo from "@/components/MothLogo";
 import { createClient } from "@/lib/supabase/client";
 
+type Provider = "github" | "google";
+
 // Map callback error codes (and raw Supabase messages) to friendly copy. The
 // OAuth callback redirects here with ?error=… on failure; without this the user
 // would land on a blank login page with no explanation.
@@ -14,23 +16,32 @@ function callbackError(raw: string | null): string | null {
   return "Sign-in failed. Please try again.";
 }
 
+// Same open-redirect guard as the OAuth callback: only same-origin paths.
+function safeNext(raw: string | null): string {
+  if (raw && raw.startsWith("/") && !raw.startsWith("//") && !raw.startsWith("/\\")) return raw;
+  return "/";
+}
+
 function LoginCard() {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Provider | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const params = useSearchParams();
   const callbackErr = callbackError(params.get("error"));
+  const next = safeNext(params.get("next"));
 
-  async function signIn() {
-    setBusy(true);
+  async function signIn(provider: Provider) {
+    setBusy(provider);
     setErr(null);
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+      },
     });
     if (error) {
       setErr(error.message);
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -46,8 +57,19 @@ function LoginCard() {
         <h1 className="text-xl font-medium tracking-hero text-ink mb-1">Sign in</h1>
         <p className="text-[12px] text-muted mb-7">Track your Claude Code token usage.</p>
 
-        <button onClick={signIn} disabled={busy} className="btn w-full justify-center py-2.5">
-          {busy ? "redirecting…" : "Sign in with Google"}
+        <button
+          onClick={() => signIn("github")}
+          disabled={busy !== null}
+          className="btn w-full justify-center py-2.5"
+        >
+          {busy === "github" ? "redirecting…" : "Continue with GitHub"}
+        </button>
+        <button
+          onClick={() => signIn("google")}
+          disabled={busy !== null}
+          className="btn w-full justify-center py-2.5 mt-3"
+        >
+          {busy === "google" ? "redirecting…" : "Continue with Google"}
         </button>
 
         {shown && (
