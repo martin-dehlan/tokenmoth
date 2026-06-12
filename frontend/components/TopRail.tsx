@@ -14,14 +14,19 @@ const NAV: Nav[] = [
 
 // Single-line top rail: logo pip + wordmark + workspace, flat nav, date chip + settings.
 // Border-bottom only, no background fill.
+// showWindow: the time-window picker only renders on pages whose data is
+// actually windowed (dashboard, repo). Settings/session pages would show an
+// inert control otherwise.
 export default function TopRail({
   workspace = "personal",
   active = "usage",
   since = "30d",
+  showWindow = true,
 }: {
   workspace?: string;
   active?: string;
   since?: string;
+  showWindow?: boolean;
 }) {
   return (
     <header className="border-b border-line">
@@ -58,9 +63,11 @@ export default function TopRail({
 
           {/* right: window picker (desktop inline) + settings */}
           <div className="flex items-center gap-2 shrink-0">
-            <div className="hidden sm:block">
-              <WindowSelect current={since} />
-            </div>
+            {showWindow && (
+              <div className="hidden sm:block">
+                <WindowSelect current={since} />
+              </div>
+            )}
             <ReloadButton />
             <ThemeToggle />
             <Link
@@ -80,9 +87,11 @@ export default function TopRail({
 
         {/* mobile: window picker on its own row — fits most phones, scrolls on
             the narrowest instead of overflowing the header. */}
-        <div className="sm:hidden pb-2.5 -mt-0.5 overflow-x-auto">
-          <WindowSelect current={since} />
-        </div>
+        {showWindow && (
+          <div className="sm:hidden pb-2.5 -mt-0.5 overflow-x-auto">
+            <WindowSelect current={since} />
+          </div>
+        )}
       </div>
     </header>
   );
