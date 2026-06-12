@@ -24,18 +24,26 @@ function ensureInitialized() {
   initialized = true;
 }
 
-function PageviewTracker() {
+function PageviewTracker({ enabled }: { enabled: boolean }) {
   const pathname = usePathname();
   const search = useSearchParams();
   useEffect(() => {
-    if (KEY && readConsent() === "granted") {
+    // `enabled` flips to true right after consent is granted (and posthog is
+    // initialized), so the page the user consented on is captured too.
+    if (enabled && KEY && readConsent() === "granted") {
       posthog.capture("$pageview", { $current_url: window.location.href });
     }
-  }, [pathname, search]);
+  }, [enabled, pathname, search]);
   return null;
 }
 
 // No-ops cleanly when NEXT_PUBLIC_POSTHOG_KEY is unset.
+//
+// The tree is intentionally STABLE: we always wrap children in PHProvider so
+// granting/withdrawing consent never changes the element type (which would
+// unmount and remount the entire app, losing client state mid-flow, e.g.
+// onboarding). GDPR gating is unchanged: posthog stays uninitialized and
+// opted-out — no network calls — until consent is granted.
 export default function PostHogProvider({ children }: { children: React.ReactNode }) {
   const [granted, setGranted] = useState(false);
 
@@ -60,12 +68,13 @@ export default function PostHogProvider({ children }: { children: React.ReactNod
     return () => window.removeEventListener(CONSENT_EVENT, apply);
   }, []);
 
-  if (!KEY || !granted) return <>{children}</>;
   return (
     <PHProvider client={posthog}>
-      <Suspense fallback={null}>
-        <PageviewTracker />
-      </Suspense>
+      {KEY && (
+        <Suspense fallback={null}>
+          <PageviewTracker enabled={granted} />
+        </Suspense>
+      )}
       {children}
     </PHProvider>
   );

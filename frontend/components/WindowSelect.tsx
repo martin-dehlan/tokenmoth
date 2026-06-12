@@ -1,8 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-
-const OPTIONS = ["1h", "5h", "12h", "24h", "7d", "30d", "90d", "all"] as const;
+import { WINDOWS } from "@/lib/ui";
 
 // Segmented time-window control. Drives the `?since=` query param on the current
 // path so the selection is shareable + server-rendered.
@@ -14,15 +13,17 @@ export default function WindowSelect({ current }: { current: string }) {
   function select(v: string) {
     const params = new URLSearchParams(search.toString());
     params.set("since", v);
-    router.push(`${pathname}?${params.toString()}`);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
   return (
-    <div className="seg">
-      {OPTIONS.map((o) => (
+    <div className="seg" role="group" aria-label="time window">
+      {WINDOWS.map((o) => (
         <button
           key={o}
+          type="button"
           data-active={o === current}
+          aria-pressed={o === current}
           onClick={() => select(o)}
           className="font-mono text-muted"
         >

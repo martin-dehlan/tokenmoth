@@ -31,7 +31,7 @@ export default function RepoList({ repos }: { repos: RepoUsage[] }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="filter repos…"
-          className="border border-line rounded-btn px-3 py-1.5 text-[12px] shadow-btn focus:outline-none focus:border-accent bg-surface min-w-[8rem]"
+          className="border border-line rounded-btn px-3 py-1.5 text-[16px] sm:text-[12px] shadow-btn focus:outline-none focus:border-accent bg-surface min-w-[8rem]"
         />
         <select
           value={sort}

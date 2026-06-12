@@ -32,17 +32,23 @@ TMP="$(mktemp)"
 SEC="${SEC}" python3 - <<'PY' > "${TMP}"
 import json, os
 d = json.loads(os.environ["SEC"])
-print(json.dumps({"Variables": {
+v = {
     "DATABASE_URL":            d["DATABASE_URL"],            # Supabase SESSION pooler :5432
     "SUPABASE_JWT_SECRET":     d["SUPABASE_JWT_SECRET"],
     "SUPABASE_URL":            "https://your-project-ref.supabase.co",  # for JWKS (ES256)
     "POSTHOG_KEY":             d.get("POSTHOG_KEY", ""),     # optional: server-side analytics (#26)
     "POSTHOG_HOST":            d.get("POSTHOG_HOST", "https://eu.i.posthog.com"),
     "TOKENMOTH_ADMIN_TOKEN":   d["TOKENMOTH_ADMIN_TOKEN"],
-    "TOKENMOTH_BOOTSTRAP_KEY": "tm_user_123",
     "TOKENMOTH_RATE_PER_MIN":  "120",
     "RUST_LOG":                "tokenmoth_api=info",
-}}))
+}
+# Single-user bootstrap (self-seeded API key on startup) is a dev/docker-compose
+# convenience. The API skips it when the env var is unset, so prod only enables
+# it if TOKENMOTH_BOOTSTRAP_KEY is explicitly stored in Secrets Manager — never
+# hardcode a value here: it becomes a valid production API key.
+if d.get("TOKENMOTH_BOOTSTRAP_KEY"):
+    v["TOKENMOTH_BOOTSTRAP_KEY"] = d["TOKENMOTH_BOOTSTRAP_KEY"]
+print(json.dumps({"Variables": v}))
 PY
 aws lambda update-function-configuration --function-name "${FN}" --region "${REGION}" \
   --environment "file://${TMP}" >/dev/null
@@ -64,10 +70,16 @@ if [ "${API_ID}" = "None" ] || [ -z "${API_ID}" ]; then
     --target "${FN_ARN}" --tags Project=tokenmoth --region "${REGION}" \
     --query ApiId --output text)"
 fi
-# Allow API Gateway to invoke the function (broad principal; no source-arn pitfalls).
+# Allow ONLY this API Gateway (this account/region/api-id) to invoke the
+# function — without --source-arn, any AWS account's gateway could invoke it.
+# Drop the legacy unscoped grant first if it's still attached.
+aws lambda remove-permission --function-name "${FN}" --region "${REGION}" \
+  --statement-id apigw-open >/dev/null 2>&1 || true
 aws lambda add-permission --function-name "${FN}" --region "${REGION}" \
-  --statement-id apigw-open --action lambda:InvokeFunction \
-  --principal apigateway.amazonaws.com >/dev/null 2>&1 || true
+  --statement-id apigw-invoke --action lambda:InvokeFunction \
+  --principal apigateway.amazonaws.com \
+  --source-arn "arn:aws:execute-api:${REGION}:${ACCOUNT}:${API_ID}/*/*" \
+  >/dev/null 2>&1 || true
 # Make sure the proxy integration points at the correct (brace-safe) ARN.
 INT_ID="$(aws apigatewayv2 get-integrations --api-id "${API_ID}" --region "${REGION}" \
   --query 'Items[0].IntegrationId' --output text)"

@@ -77,7 +77,7 @@ export default function ConsentBanner() {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 p-3 sm:p-4">
+    <div className="fixed inset-x-0 bottom-0 z-50 p-3 sm:p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="mx-auto max-w-3xl rounded-surface border border-line bg-surface shadow-surface px-5 py-4">
         <div className="text-[10px] uppercase tracking-label text-faint mb-1.5">{c.heading}</div>
         <p className="text-[12px] text-muted leading-relaxed">{c.body(privacy)}</p>

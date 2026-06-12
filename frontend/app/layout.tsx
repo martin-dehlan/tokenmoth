@@ -26,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       </head>
-      <body className="font-sans bg-canvas text-ink antialiased min-h-screen flex flex-col">
+      <body className="font-sans bg-canvas text-ink antialiased min-h-dvh flex flex-col">
         <PostHogProvider>
           <div className="flex-1 flex flex-col">{children}</div>
           <Footer />
