@@ -22,7 +22,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
       <>
         <TopRail active="usage" since="30d" />
         <main className={PAGE_MAIN}>
-          <div className="my-7 rounded-surface border border-line bg-surface shadow-surface px-8 py-12 text-center">
+          <div className="my-7 rounded-surface border border-line bg-surface shadow-surface px-4 sm:px-8 py-12 text-center">
             <div className="text-[13px] text-muted mb-3">session not found</div>
             <Link href="/" className="btn text-muted">
               ◀ <span className="text-ink">panel</span>
@@ -53,7 +53,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
       <main className={PAGE_MAIN}>
         <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
           {/* HERO */}
-          <section className="px-8 pt-8 pb-7">
+          <section className="px-4 sm:px-8 pt-8 pb-7">
             <div className="flex items-center gap-2 mb-4 flex-wrap">
               <Link href={`/repo/${encodeURIComponent(s.repo)}`} className="btn text-muted">
                 ◀ <span className="text-ink">{s.repo}</span>
@@ -92,7 +92,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
 
           {/* COST ANATOMY — where this session's tokens actually went (#152) */}
           {hasAnatomy && (
-            <section className="px-8 pt-7 pb-7 border-t border-hair">
+            <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="text-[10px] uppercase tracking-label text-muted">cost anatomy</h2>
                 <span className="text-[10px] tracking-label text-faint">
@@ -112,7 +112,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
           )}
 
           {/* PLUGIN / HOOK OVERHEAD */}
-          <section className="px-8 pt-7 pb-7 border-t border-hair">
+          <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
             <div className="flex items-baseline justify-between mb-4">
               <h2 className="text-[10px] uppercase tracking-label text-muted">
                 overhead by plugin / hook
@@ -132,7 +132,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
 
           {/* MCP SERVERS — loaded vs actually called (#153) */}
           {mcpNames.length > 0 && (
-            <section className="px-8 pt-7 pb-7 border-t border-hair">
+            <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="text-[10px] uppercase tracking-label text-muted">
                   MCP servers active

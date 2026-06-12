@@ -17,7 +17,7 @@ export default function RepoBreaker({
   return (
     <Link
       href={`/repo/${encodeURIComponent(repo.repo)}`}
-      className="group grid grid-cols-[minmax(9rem,1.2fr)_2fr_auto] items-center gap-4 sm:gap-6 px-2 -mx-2 py-2.5 rounded-btn hover:bg-accent-faint transition-colors"
+      className="group grid grid-cols-[minmax(0,1.2fr)_minmax(2.5rem,2fr)_auto] items-center gap-3 sm:gap-6 px-2 -mx-2 py-2.5 rounded-btn hover:bg-accent-faint transition-colors"
     >
       {/* name + sub-note */}
       <div className="min-w-0">

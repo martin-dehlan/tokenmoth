@@ -29,14 +29,44 @@ case "$os" in
 esac
 [ -n "$target" ] || { echo "tokenmoth: unsupported platform $os/$arch" >&2; exit 1; }
 
+# Pick a sha256 tool (macOS ships shasum; most Linux distros ship sha256sum).
+if command -v sha256sum >/dev/null 2>&1; then
+  sha_cmd="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+  sha_cmd="shasum -a 256"
+else
+  echo "tokenmoth: need sha256sum or shasum to verify the download" >&2
+  exit 1
+fi
+
 echo "→ downloading tokenmoth ($target)…"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 artifact="tokenmoth-$target.tar.gz"
-if ! curl -fsSL "$BASE/$artifact" | tar -xz -C "$tmp" 2>/dev/null; then
-  echo "  $BASE unreachable — falling back to S3…" >&2
-  curl -fsSL "$FALLBACK/$artifact" | tar -xz -C "$tmp"
+
+# Download tarball + .sha256 sidecar from one host ($1).
+fetch() {
+  curl -fSsL "$1/$artifact" -o "$tmp/$artifact" &&
+    curl -fSsL "$1/$artifact.sha256" -o "$tmp/$artifact.sha256"
+}
+if ! fetch "$BASE"; then
+  echo "  download from $BASE failed (see curl error above) — falling back to $FALLBACK…" >&2
+  fetch "$FALLBACK"
 fi
+
+# Verify the tarball against the published checksum before extracting.
+expected="$(awk '{print $1}' "$tmp/$artifact.sha256")"
+actual="$($sha_cmd "$tmp/$artifact" | awk '{print $1}')"
+if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+  echo "tokenmoth: SHA-256 MISMATCH for $artifact" >&2
+  echo "  expected: $expected" >&2
+  echo "  actual:   $actual" >&2
+  echo "  The download is corrupted or has been tampered with. Aborting." >&2
+  exit 1
+fi
+echo "  ✓ sha256 verified"
+
+tar -xzf "$tmp/$artifact" -C "$tmp"
 mkdir -p "$BINDIR"
 install -m 0755 "$tmp/tokenmoth" "$BINDIR/tokenmoth"
 

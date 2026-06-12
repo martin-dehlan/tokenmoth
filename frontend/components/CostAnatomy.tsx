@@ -33,19 +33,19 @@ export default function CostAnatomy({
     {
       label: "setup re-reads",
       tokens: setupShare,
-      color: "#9a6200",
+      color: "var(--chart-3)",
       hint: `${fmtTokens(baselineTokens)} baseline × ${turnCount} calls`,
     },
     {
       label: "conversation context",
       tokens: growthShare,
-      color: "#1a4f7f",
+      color: "var(--chart-2)",
       hint: "files, tool results, chat — re-read each call",
     },
     {
       label: "output",
       tokens: outputTokens,
-      color: "#1a7f64",
+      color: "var(--chart-1)",
       hint: "what the model wrote",
     },
   ];
@@ -112,7 +112,7 @@ export default function CostAnatomy({
                 y={100 - (s / peak) * 100}
                 width={0.76}
                 height={(s / peak) * 100}
-                fill={i === jumpAt ? "#9a6200" : "#1a4f7f"}
+                fill={i === jumpAt ? "var(--chart-3)" : "var(--chart-2)"}
                 opacity={i === jumpAt ? 1 : 0.55}
               />
             ))}

@@ -50,34 +50,13 @@ export default function Optimizer({
             hint={avgBaselineTokens > 0 ? `baseline ${fmtTokens(avgBaselineTokens)} / call` : undefined}
           />
 
-          {dead.length > 0 && (
-            <div className="mb-3">
-              <button
-                type="button"
-                onClick={() => setShowDead((v) => !v)}
-                className="text-left text-[11px] leading-relaxed"
-              >
-                <span className="text-warn">{dead.length} never called</span>
-                <span className="text-faint"> — schemas reload every session. Drop them.</span>
-                <span className="ml-1.5 text-[10px] uppercase tracking-label text-muted hover:text-ink">
-                  {showDead ? "hide" : "show"}
-                </span>
-              </button>
-              {showDead && (
-                <p className="mt-1.5 font-mono text-[11px] text-faint leading-relaxed break-words">
-                  {dead.map((d) => d.server).join(", ")}
-                </p>
-              )}
-            </div>
-          )}
-
           {used.length > 0 && (
             <>
               <table className="w-full table-fixed border-collapse">
                 <thead>
                   <tr className="border-b border-line-soft">
                     <Th className="text-left">server</Th>
-                    <Th className="text-right w-16">calls</Th>
+                    <Th className="text-right w-20">calls</Th>
                     <Th className="text-right w-20">sessions</Th>
                   </tr>
                 </thead>
@@ -106,6 +85,27 @@ export default function Optimizer({
                 <Toggle expanded={allUsed} onClick={() => setAllUsed((v) => !v)} />
               )}
             </>
+          )}
+
+          {dead.length > 0 && (
+            <div className={used.length > 0 ? "mt-2.5" : ""}>
+              <button
+                type="button"
+                onClick={() => setShowDead((v) => !v)}
+                className="text-left text-[11px] leading-relaxed"
+              >
+                <span className="text-warn">{dead.length} never called</span>
+                <span className="text-faint"> — schemas reload every session. Drop them.</span>
+                <span className="ml-1.5 text-[10px] uppercase tracking-label text-muted hover:text-ink">
+                  {showDead ? "hide" : "show"}
+                </span>
+              </button>
+              {showDead && (
+                <p className="mt-1.5 font-mono text-[11px] text-faint leading-relaxed break-words">
+                  {dead.map((d) => d.server).join(", ")}
+                </p>
+              )}
+            </div>
           )}
         </section>
       )}

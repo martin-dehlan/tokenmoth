@@ -11,3 +11,8 @@ export const PAGE_MAX_W = "max-w-7xl";
 // loading skeleton) render narrower than the dashboard. `w-full` pins it to the
 // full column (capped by max-w-7xl) so every page is the same width.
 export const PAGE_MAIN = `mx-auto w-full ${PAGE_MAX_W} px-5`;
+
+// Valid `?since=` time windows — shared by the dashboard, repo detail page and
+// the WindowSelect segmented control so they can never drift apart.
+export const WINDOWS = ["1h", "5h", "12h", "24h", "7d", "30d", "90d", "all"] as const;
+export type Window = (typeof WINDOWS)[number];

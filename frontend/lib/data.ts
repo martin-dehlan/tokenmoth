@@ -526,7 +526,9 @@ export type DashboardData = {
   overheadByHook: HookOverhead[]; // overhead tokens per plugin/hook (#85)
   mcpUsage: McpUsage[]; // loaded vs called per MCP server (#153)
   avgBaselineTokens: number; // avg measured first-call context (#152)
-  source: "live" | "demo";
+  // "demo" is only ever returned for anonymous visitors; for signed-in users an
+  // unreachable/failing API yields "error" with empty data — never fake data.
+  source: "live" | "demo" | "error";
   error?: string;
 };
 
@@ -553,14 +555,33 @@ function demoDashboard(since: string, error: string): DashboardData {
   };
 }
 
+// Empty dashboard tagged "error" — shown to signed-in users when the API is
+// unreachable. They get an explicit error panel instead of fake demo numbers.
+function errorDashboard(error: string): DashboardData {
+  return {
+    repos: [],
+    series: [],
+    models: [],
+    trends: null,
+    apiCostUsd: 0,
+    overheadByHook: [],
+    mcpUsage: [],
+    avgBaselineTokens: 0,
+    source: "error",
+    error,
+  };
+}
+
 export async function fetchDashboard(accessToken: string, since = "30d"): Promise<DashboardData> {
+  // Demo data is only for anonymous visitors (no session). Signed-in users get
+  // a real error instead of fake data when the API fails.
   if (!accessToken) return demoDashboard(since, "not signed in — showing demo data");
   try {
     const res = await fetch(`${API_URL}/v1/dashboard?since=${encodeURIComponent(since)}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
-    if (!res.ok) return demoDashboard(since, `API responded ${res.status} — showing demo data`);
+    if (!res.ok) return errorDashboard(`the API responded with status ${res.status}`);
     const d = await res.json();
     const t = d.trends;
     return {
@@ -610,7 +631,7 @@ export async function fetchDashboard(accessToken: string, since = "30d"): Promis
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "fetch failed";
-    return demoDashboard(since, `${msg} — showing demo data`);
+    return errorDashboard(msg);
   }
 }
 
@@ -720,17 +741,23 @@ export async function fetchSession(
   }
 }
 
-// Color per model family.
+// Color per model family. Resolved through the --chart-* tokens in globals.css
+// so light and dark themes each get an appropriate palette.
 export function modelColor(model: string): string {
   const m = model.toLowerCase();
-  if (m.includes("opus")) return "#1a4f7f"; // navy
-  if (m.includes("sonnet")) return "#1a7f64"; // teal
-  if (m.includes("haiku")) return "#9a6200"; // amber
-  return "#6b7280"; // gray
+  if (m.includes("opus")) return "var(--chart-2)"; // navy
+  if (m.includes("sonnet")) return "var(--chart-1)"; // teal
+  if (m.includes("haiku")) return "var(--chart-3)"; // amber
+  return "var(--chart-4)"; // gray
 }
 
 // Gauge fill colors cycled per instrument row (teal / navy / amber / gray).
-export const INSTRUMENT_COLORS = ["#1a7f64", "#1a4f7f", "#9a6200", "#6b7280"] as const;
+export const INSTRUMENT_COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+] as const;
 
 // Deterministic demo series so the detail page renders offline.
 function demoSeries(name: string, since: string, error: string): SeriesResult {

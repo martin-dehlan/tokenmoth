@@ -91,7 +91,7 @@ export default function KeyManager() {
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="label (e.g. laptop)"
-          className="border border-line rounded-btn px-3 py-1.5 text-[13px] shadow-btn focus:outline-none focus:border-accent bg-surface"
+          className="border border-line rounded-btn px-3 py-1.5 text-[16px] sm:text-[13px] shadow-btn focus:outline-none focus:border-accent bg-surface"
         />
         <button type="submit" className="btn btn-accent">
           + new key
@@ -131,7 +131,9 @@ export default function KeyManager() {
 
       {/* list */}
       <div className="flex flex-col">
-        <div className="grid grid-cols-[1fr_1.2fr_auto_auto] gap-4 text-[10px] uppercase tracking-label text-faint pb-2 border-b border-hair">
+        {/* the 4-column ledger header only makes sense at sm+; phones get a
+            2-row card per key below, so the header is hidden there */}
+        <div className="hidden sm:grid grid-cols-[1fr_1.2fr_auto_auto] gap-4 text-[10px] uppercase tracking-label text-faint pb-2 border-b border-hair">
           <span>key</span>
           <span>label</span>
           <span>created</span>
@@ -145,18 +147,22 @@ export default function KeyManager() {
           keys.map((k) => (
             <div
               key={k.id}
-              className="grid grid-cols-[1fr_1.2fr_auto_auto] gap-4 items-center py-2.5 border-b border-hair text-[12px]"
+              className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 items-center py-2.5 border-b border-hair text-[12px] sm:grid-cols-[1fr_1.2fr_auto_auto]"
             >
-              <code className="font-mono text-ink">{k.masked}</code>
-              <span className="text-muted truncate">{k.label ?? "—"}</span>
-              <span className="font-mono text-faint">{k.created_at.slice(0, 10)}</span>
-              <div className="flex justify-end">
+              {/* phones: row 1 = key + status, row 2 = label + date;
+                  sm+: original 4-column ledger (order resets to DOM order) */}
+              <code className="order-1 sm:order-none font-mono text-ink break-all">{k.masked}</code>
+              <span className="order-3 sm:order-none text-muted truncate">{k.label ?? "—"}</span>
+              <span className="order-4 sm:order-none justify-self-end sm:justify-self-auto font-mono text-faint">
+                {k.created_at.slice(0, 10)}
+              </span>
+              <div className="order-2 sm:order-none flex justify-end">
                 {k.active ? (
                   <button className="btn text-warn" onClick={() => revoke(k.id)}>
                     revoke
                   </button>
                 ) : (
-                  <span className="tag" style={{ color: "#9ca3af", background: "rgba(156,163,175,0.1)" }}>
+                  <span className="tag" style={{ color: "var(--faint)", background: "var(--raise)" }}>
                     revoked
                   </span>
                 )}

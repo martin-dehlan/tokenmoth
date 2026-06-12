@@ -11,7 +11,10 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const https = require("https");
+const crypto = require("crypto");
 const { execFileSync } = require("child_process");
+
+const PKG_VERSION = require("./package.json").version;
 
 // Branded dist domain (CloudFront → S3, see issue #124). Raw S3 stays as a
 // transitional fallback if the branded host can't be reached.
@@ -34,7 +37,7 @@ function fail(msg) {
   console.error(`tokenmoth: ${msg}`);
   console.error(
     "  install the binary manually instead:\n" +
-      "  https://github.com/martin-dehlan/tokenmoth#install",
+      "  https://tokenmoth.com",
   );
   process.exit(1);
 }
@@ -63,15 +66,50 @@ function download(url, redirects = 0) {
   });
 }
 
+// Verify `buf` against the published .sha256 sidecar (`<hex>` — release.yml
+// strips the filename via awk; tolerate `<hex>  <filename>` too). A mismatch
+// is a hard failure: it means the artifact was corrupted or tampered with.
+function verifyChecksum(buf, sidecar, name) {
+  const expected = sidecar.toString("utf8").trim().split(/\s+/)[0].toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(expected)) {
+    throw new Error(`malformed .sha256 sidecar for ${name}`);
+  }
+  const actual = crypto.createHash("sha256").update(buf).digest("hex");
+  if (actual !== expected) {
+    fail(
+      `SHA-256 MISMATCH for ${name}!\n` +
+        `  expected: ${expected}\n` +
+        `  actual:   ${actual}\n` +
+        "  The download is corrupted or has been tampered with. Refusing to install.",
+    );
+  }
+}
+
 async function fetchTarball(target) {
   const name = `tokenmoth-${target}.tar.gz`;
-  for (const base of [PRIMARY_BASE, FALLBACK_BASE]) {
-    const url = `${base}/${name}`;
-    try {
-      process.stdout.write(`→ downloading ${name} from ${base}…\n`);
-      return await download(url);
-    } catch (err) {
-      process.stderr.write(`  ${base} failed: ${err.message}\n`);
+  // Prefer the artifact pinned to this package's version; the un-versioned
+  // "latest" key is a fallback for releases published before versioned keys.
+  const keys = [`releases/v${PKG_VERSION}/${name}`, name];
+  for (const key of keys) {
+    for (const base of [PRIMARY_BASE, FALLBACK_BASE]) {
+      const url = `${base}/${key}`;
+      try {
+        process.stdout.write(`→ downloading ${key} from ${base}…\n`);
+        const tarball = await download(url);
+        const sidecar = await download(`${url}.sha256`);
+        verifyChecksum(tarball, sidecar, key);
+        process.stdout.write("  ✓ sha256 verified\n");
+        return tarball;
+      } catch (err) {
+        process.stderr.write(`  ${base}/${key} failed: ${err.message}\n`);
+      }
+    }
+    if (key !== name) {
+      process.stderr.write(
+        `tokenmoth: WARNING — versioned artifact releases/v${PKG_VERSION}/${name} ` +
+          "not available; falling back to the un-versioned \"latest\" artifact " +
+          "(may not match this package version).\n",
+      );
     }
   }
   fail(`could not download ${name} from any source`);

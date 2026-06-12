@@ -13,7 +13,7 @@ export default function Settings() {
       <TopRail active="settings" since="30d" />
       <main className="mx-auto max-w-3xl px-5">
         <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
-          <section className="px-8 pt-8 pb-7">
+          <section className="px-4 sm:px-8 pt-8 pb-7">
             <div className="text-[10px] uppercase tracking-label text-faint mb-1">settings</div>
             <h1 className="text-2xl font-medium tracking-hero text-ink mb-1">API keys</h1>
             <p className="text-[12px] text-muted mb-6">
@@ -23,7 +23,7 @@ export default function Settings() {
             <KeyManager />
           </section>
 
-          <section className="px-8 pt-6 pb-7 border-t border-hair">
+          <section className="px-4 sm:px-8 pt-6 pb-7 border-t border-hair">
             <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">subscription</h2>
             <p className="text-[12px] text-muted mb-4">
               Your TokenMoth plan and this month&apos;s usage against its allowance.
@@ -31,7 +31,7 @@ export default function Settings() {
             <PlanBilling />
           </section>
 
-          <section className="px-8 pt-6 pb-7 border-t border-hair">
+          <section className="px-4 sm:px-8 pt-6 pb-7 border-t border-hair">
             <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">monthly budget</h2>
             <p className="text-[12px] text-muted mb-4">
               Set a monthly spend target. The dashboard shows a banner at 80% and 100% of budget
@@ -40,7 +40,7 @@ export default function Settings() {
             <BudgetSetting />
           </section>
 
-          <section className="px-8 pt-6 pb-7 border-t border-hair">
+          <section className="px-4 sm:px-8 pt-6 pb-7 border-t border-hair">
             <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">your plan</h2>
             <p className="text-[12px] text-muted mb-4">
               Pick your subscription to see the ROI multiplier on the dashboard — how your usage
@@ -49,7 +49,7 @@ export default function Settings() {
             <PlanSelect />
           </section>
 
-          <section className="px-8 pt-6 pb-8 border-t border-hair">
+          <section className="px-4 sm:px-8 pt-6 pb-8 border-t border-hair">
             <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">data & privacy</h2>
             <p className="text-[12px] text-muted mb-4">
               Export or permanently delete your account data (DSGVO Art. 15/17/20).

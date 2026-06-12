@@ -1,6 +1,7 @@
 import Link from "next/link";
 import WindowSelect from "./WindowSelect";
 import MothLogo from "./MothLogo";
+import ReloadButton from "./ReloadButton";
 import ThemeToggle from "./ThemeToggle";
 import { PAGE_MAX_W } from "@/lib/ui";
 
@@ -60,6 +61,7 @@ export default function TopRail({
             <div className="hidden sm:block">
               <WindowSelect current={since} />
             </div>
+            <ReloadButton />
             <ThemeToggle />
             <Link
               href="/settings"

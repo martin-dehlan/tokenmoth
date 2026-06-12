@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
@@ -241,14 +241,26 @@ async fn bootstrap_key(db: &PgPool, key: &str, email: &str) -> anyhow::Result<()
     .fetch_one(db)
     .await?;
     sqlx::query(
-        "insert into api_keys (key, user_id, label) values ($1, $2, 'bootstrap')
-         on conflict (key) do nothing",
+        "insert into api_keys (key_hash, key_prefix, user_id, label) values ($1, $2, $3, 'bootstrap')
+         on conflict (key_hash) do nothing",
     )
-    .bind(key)
+    .bind(hash_key(key))
+    .bind(key_prefix(key))
     .bind(user_id)
     .execute(db)
     .await?;
     Ok(())
+}
+
+/// sha256 of an API key, lowercase hex — the only form ever stored (audit:
+/// plaintext key storage).
+fn hash_key(key: &str) -> String {
+    hex_lower(&Sha256::digest(key.as_bytes()))
+}
+
+/// Display prefix stored alongside the hash: `tm_` + first 8 chars of the body.
+fn key_prefix(key: &str) -> String {
+    key.chars().take(11).collect()
 }
 
 async fn ingest(
@@ -267,7 +279,10 @@ async fn ingest(
     let user_id = auth_user(&st.db, &headers).await?;
 
     // Validate payload (audit finding 1: never trust client-supplied counts blindly).
-    if t.session_id.trim().is_empty() {
+    // "unknown" is the historical CLI fallback session id — it collides globally
+    // across users (session_id is unique table-wide), so reject it like empty.
+    let sid = t.session_id.trim();
+    if sid.is_empty() || sid == "unknown" {
         return Err((StatusCode::BAD_REQUEST, "session_id is required".to_string()));
     }
     if t.input_tokens < 0
@@ -444,6 +459,8 @@ fn price_for(model: Option<&str>) -> ModelPrice {
         (1.0, 5.0)
     } else if m.contains("sonnet") {
         (3.0, 15.0)
+    } else if m.contains("fable") || m.contains("mythos") {
+        (10.0, 50.0)
     } else {
         (5.0, 25.0) // opus / unknown fallback
     };
@@ -787,7 +804,7 @@ struct KeyOut {
 #[derive(sqlx::FromRow)]
 struct KeyRow {
     id: uuid::Uuid,
-    key: String,
+    key_prefix: String,
     label: Option<String>,
     created_at: DateTime<Utc>,
     revoked_at: Option<DateTime<Utc>>,
@@ -806,13 +823,15 @@ struct CreatedKey {
     label: Option<String>,
 }
 
-/// Show only the shape of a key: `tm_ab12…cd34`.
-fn mask_key(k: &str) -> String {
-    let body = k.strip_prefix("tm_").unwrap_or(k);
-    if body.len() <= 8 {
+/// Show only the shape of a key from its stored prefix: `tm_ab12…`.
+/// The full secret is never stored, so the mask is prefix-only (audit:
+/// plaintext key storage).
+fn mask_key(prefix: &str) -> String {
+    let body = prefix.strip_prefix("tm_").unwrap_or(prefix);
+    if body.len() < 4 {
         return "tm_…".to_string();
     }
-    format!("tm_{}…{}", &body[..4], &body[body.len() - 4..])
+    format!("tm_{}…", &body[..4])
 }
 
 async fn list_keys(
@@ -821,7 +840,7 @@ async fn list_keys(
 ) -> Result<Json<Vec<KeyOut>>, (StatusCode, String)> {
     let (user_id, _) = auth_supabase_user(&st, &headers).await?;
     let rows: Vec<KeyRow> = sqlx::query_as(
-        "select id, key, label, created_at, revoked_at from api_keys
+        "select id, key_prefix, label, created_at, revoked_at from api_keys
          where user_id = $1 order by created_at desc",
     )
     .bind(user_id)
@@ -832,7 +851,7 @@ async fn list_keys(
     let out = rows
         .into_iter()
         .map(|r| KeyOut {
-            masked: mask_key(&r.key),
+            masked: mask_key(&r.key_prefix),
             active: r.revoked_at.is_none(),
             id: r.id,
             label: r.label,
@@ -850,20 +869,19 @@ async fn create_key(
 ) -> Result<(StatusCode, Json<CreatedKey>), (StatusCode, String)> {
     let (user_id, _) = auth_supabase_user(&st, &headers).await?;
 
+    // Full secret is returned ONCE; only its hash + display prefix are stored.
     let key = format!("tm_{}", uuid::Uuid::new_v4().simple());
-    sqlx::query("insert into api_keys (key, user_id, label) values ($1, $2, $3)")
-        .bind(&key)
-        .bind(user_id)
-        .bind(&req.label)
-        .execute(&st.db)
-        .await
-        .map_err(internal)?;
-
-    let id: uuid::Uuid = sqlx::query_scalar("select id from api_keys where key = $1")
-        .bind(&key)
-        .fetch_one(&st.db)
-        .await
-        .map_err(internal)?;
+    let id: uuid::Uuid = sqlx::query_scalar(
+        "insert into api_keys (key_hash, key_prefix, user_id, label)
+         values ($1, $2, $3, $4) returning id",
+    )
+    .bind(hash_key(&key))
+    .bind(key_prefix(&key))
+    .bind(user_id)
+    .bind(&req.label)
+    .fetch_one(&st.db)
+    .await
+    .map_err(internal)?;
 
     Ok((StatusCode::CREATED, Json(CreatedKey { id, key, label: req.label })))
 }
@@ -1024,7 +1042,9 @@ async fn trends(
         with t as (
             select ended_at,
                    (input_tokens + output_tokens + cache_creation_input_tokens) as tok
-            from token_logs where user_id = $1
+            -- $3 (previous-window start; epoch for `all`) bounds the scan so we
+            -- never read history older than the comparison window (audit).
+            from token_logs where user_id = $1 and ended_at >= $3
         )
         select
           coalesce(sum(case when ended_at >= $2 then tok else 0 end), 0)::bigint                       as current_tokens,
@@ -1201,7 +1221,8 @@ async fn dashboard(
         r#"
         with t as (
             select ended_at, (input_tokens + output_tokens + cache_creation_input_tokens) as tok
-            from token_logs where user_id = $1
+            -- $3 (previous-window start; epoch for `all`) bounds the scan (audit).
+            from token_logs where user_id = $1 and ended_at >= $3
         )
         select
           coalesce(sum(case when ended_at >= $2 then tok else 0 end), 0)::bigint                  as current_tokens,
@@ -1474,6 +1495,23 @@ struct ExportRow {
     ended_at: DateTime<Utc>,
 }
 
+/// Make one text value safe for a CSV cell: RFC-4180 quoting (wrap when the
+/// value contains comma/quote/CR/LF, double inner quotes) plus a leading `'`
+/// for values starting with `=`, `+`, `-` or `@` so spreadsheet apps never
+/// interpret user-controlled data as a formula (CSV injection).
+fn csv_field(s: &str) -> String {
+    let mut v = String::with_capacity(s.len() + 2);
+    if matches!(s.chars().next(), Some('=' | '+' | '-' | '@')) {
+        v.push('\'');
+    }
+    v.push_str(s);
+    if v.contains(',') || v.contains('"') || v.contains('\n') || v.contains('\r') {
+        format!("\"{}\"", v.replace('"', "\"\""))
+    } else {
+        v
+    }
+}
+
 async fn export(
     State(st): State<AppState>,
     headers: HeaderMap,
@@ -1510,9 +1548,9 @@ async fn export(
     for r in &rows {
         csv.push_str(&format!(
             "{},{},{},{},{},{},{},{}\n",
-            r.session_id,
-            r.repo,
-            r.model,
+            csv_field(&r.session_id),
+            csv_field(&r.repo),
+            csv_field(&r.model),
             r.input_tokens,
             r.output_tokens,
             r.cache_read_input_tokens,
@@ -1596,23 +1634,32 @@ async fn get_budget(
         .fetch_one(&st.db)
         .await
         .map_err(internal)?;
-    // Month-to-date token sums → cost via the same flat estimator as the
-    // dashboard, so the banner and the hero figure can't disagree.
-    let row: (i64, i64, i64, i64) = sqlx::query_as(
-        r#"
-        select coalesce(sum(input_tokens),0)::bigint,
-               coalesce(sum(output_tokens),0)::bigint,
-               coalesce(sum(cache_read_input_tokens),0)::bigint,
-               coalesce(sum(cache_creation_input_tokens),0)::bigint
-        from token_logs
-        where user_id = $1 and ended_at >= date_trunc('month', now())
-        "#,
-    )
-    .bind(user_id)
-    .fetch_one(&st.db)
-    .await
-    .map_err(internal)?;
-    let spend = cost_usd(row.0, row.1, row.2, row.3);
+    // Month-to-date spend priced PER MODEL via the same rollup + cost_for the
+    // dashboard hero uses (#72), so the budget banner and the hero figure agree.
+    let month_start = {
+        use chrono::{Datelike, TimeZone};
+        let now = Utc::now();
+        Utc.with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0).unwrap()
+    };
+    let model_rows: Vec<ModelRow> = sqlx::query_as(MODEL_ROLLUP_SQL)
+        .bind(user_id)
+        .bind(month_start)
+        .fetch_all(&st.db)
+        .await
+        .map_err(internal)?;
+    let spend_raw: f64 = model_rows
+        .iter()
+        .map(|r| {
+            cost_for(
+                Some(&r.model),
+                r.input_tokens,
+                r.output_tokens,
+                r.cache_read_tokens,
+                r.cache_creation_tokens,
+            )
+        })
+        .sum();
+    let spend = (spend_raw * 100.0).round() / 100.0;
     let pct = if budget > 0.0 {
         (spend / budget * 1000.0).round() / 10.0
     } else {
@@ -1623,7 +1670,8 @@ async fn get_budget(
 
 #[derive(Deserialize)]
 struct BudgetIn {
-    budget_usd: f64,
+    /// null clears the budget (stored as 0 = no budget set).
+    budget_usd: Option<f64>,
 }
 
 async fn put_budget(
@@ -1632,14 +1680,15 @@ async fn put_budget(
     Json(b): Json<BudgetIn>,
 ) -> Result<Json<BudgetOut>, (StatusCode, String)> {
     let (user_id, _) = auth_supabase_user(&st, &headers).await?;
-    if !b.budget_usd.is_finite() || b.budget_usd < 0.0 || b.budget_usd > 1_000_000.0 {
+    let budget_usd = b.budget_usd.unwrap_or(0.0);
+    if !budget_usd.is_finite() || budget_usd < 0.0 || budget_usd > 1_000_000.0 {
         return Err((
             StatusCode::BAD_REQUEST,
             "budget_usd must be a finite value between 0 and 1000000".to_string(),
         ));
     }
     sqlx::query("update users set budget_usd = $1 where id = $2")
-        .bind(b.budget_usd)
+        .bind(budget_usd)
         .bind(user_id)
         .execute(&st.db)
         .await
@@ -2035,8 +2084,8 @@ async fn auth_user(
 ) -> Result<uuid::Uuid, (StatusCode, String)> {
     let key = bearer(headers)
         .ok_or((StatusCode::UNAUTHORIZED, "missing bearer token".to_string()))?;
-    sqlx::query_scalar("select user_id from api_keys where key = $1 and revoked_at is null")
-        .bind(&key)
+    sqlx::query_scalar("select user_id from api_keys where key_hash = $1 and revoked_at is null")
+        .bind(hash_key(&key))
         .fetch_optional(db)
         .await
         .map_err(internal)?
@@ -2060,8 +2109,11 @@ fn repo_from_path(p: &str) -> String {
         .to_string()
 }
 
+/// Map an internal error to a generic 500. The real error goes to the logs
+/// only — never into the response body (audit: error detail leak).
 fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
-    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    tracing::error!(error = %e, "internal server error");
+    (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string())
 }
 
 #[cfg(test)]
@@ -2132,11 +2184,18 @@ mod tests {
         assert_eq!(cost_for(Some("claude-opus-4-8"), 1_000_000, 1_000_000, 0, 0), 30.0); // 5 + 25
         assert_eq!(cost_for(Some("claude-sonnet-4-6"), 1_000_000, 1_000_000, 0, 0), 18.0); // 3 + 15
         assert_eq!(cost_for(Some("claude-haiku-4-5"), 1_000_000, 1_000_000, 0, 0), 6.0); // 1 + 5
+        // fable / mythos family → $10 / $50 per MTok.
+        assert_eq!(cost_for(Some("claude-fable-5"), 1_000_000, 1_000_000, 0, 0), 60.0); // 10 + 50
+        assert_eq!(cost_for(Some("claude-mythos-1"), 1_000_000, 1_000_000, 0, 0), 60.0);
         // null/unknown → Opus fallback.
         assert_eq!(cost_for(None, 1_000_000, 0, 0, 0), 5.0);
         assert_eq!(cost_for(Some("mystery"), 1_000_000, 0, 0, 0), 5.0);
         // cache read = 10% input, cache write = 125% input (Opus).
         assert!((cost_for(Some("opus"), 0, 0, 1_000_000, 1_000_000) - (0.5 + 6.25)).abs() < 1e-9);
+        // cache multipliers track the family's input price (fable).
+        assert!(
+            (cost_for(Some("fable"), 0, 0, 1_000_000, 1_000_000) - (1.0 + 12.5)).abs() < 1e-9
+        );
     }
 
     #[test]
@@ -2146,9 +2205,43 @@ mod tests {
     }
 
     #[test]
-    fn mask_key_hides_the_middle() {
-        assert_eq!(mask_key("tm_0123456789abcdef"), "tm_0123…cdef");
-        assert_eq!(mask_key("tm_short"), "tm_…");
+    fn mask_key_shows_prefix_only() {
+        // Stored prefix is `tm_` + first 8 chars of the body.
+        assert_eq!(key_prefix("tm_0123456789abcdef"), "tm_01234567");
+        assert_eq!(mask_key("tm_01234567"), "tm_0123…");
+        assert_eq!(mask_key("tm_x"), "tm_…");
+    }
+
+    #[test]
+    fn hash_key_is_sha256_hex() {
+        // sha256("tm_user_123") — must match the pgcrypto backfill in 0013
+        // (`encode(digest(key,'sha256'),'hex')`) and seed.sql.
+        assert_eq!(
+            hash_key("tm_user_123"),
+            "ef3faa514ecbf9903cc35118a746c9e0b33c87c0e7ffa3a841c01c75fa4fa884"
+        );
+        // Stable + distinct per input.
+        assert_eq!(hash_key("a"), hash_key("a"));
+        assert_ne!(hash_key("a"), hash_key("b"));
+    }
+
+    #[test]
+    fn csv_field_quotes_and_neutralizes_formulas() {
+        // Plain values pass through.
+        assert_eq!(csv_field("my-repo"), "my-repo"); // leading '-' only triggers at start
+        assert_eq!(csv_field("plain"), "plain");
+        // RFC-4180: comma/quote/newline force quoting; inner quotes doubled.
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("he said \"hi\""), "\"he said \"\"hi\"\"\"");
+        assert_eq!(csv_field("line1\nline2"), "\"line1\nline2\"");
+        // Formula injection: leading = + - @ gets a neutralizing apostrophe.
+        assert_eq!(csv_field("=cmd()"), "'=cmd()");
+        assert_eq!(csv_field("+1"), "'+1");
+        assert_eq!(csv_field("-2"), "'-2");
+        assert_eq!(csv_field("@x"), "'@x");
+        // Both at once: prefix then quote.
+        assert_eq!(csv_field("=1,2"), "\"'=1,2\"");
+        assert_eq!(csv_field(""), "");
     }
 
     #[test]

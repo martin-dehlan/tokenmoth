@@ -80,7 +80,7 @@ export default function Landing() {
       {/* the white instrument panel, floating on the stone desk */}
       <main className="flex-1 grid place-items-center px-6">
         <div className="w-full max-w-2xl rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
-          <section className="px-8 pt-8 pb-7">
+          <section className="px-4 sm:px-8 pt-8 pb-7">
             <div className="text-[10px] uppercase tracking-label text-faint mb-3">
               claude code · token tracker
             </div>
@@ -93,7 +93,7 @@ export default function Landing() {
             </p>
           </section>
 
-          <section className="px-8 pt-6 pb-8 border-t border-hair">
+          <section className="px-4 sm:px-8 pt-6 pb-8 border-t border-hair">
             <div className="flex items-center justify-between gap-3 mb-2.5">
               <div className="text-[10px] uppercase tracking-label text-muted">install</div>
               <div className="flex items-center gap-2">
