@@ -87,6 +87,18 @@ export default function DataPage() {
             </table>
           </Section>
 
+          <Section label="verify it yourself">
+            <p className="text-[13px] text-muted leading-relaxed max-w-lg">
+              Don&apos;t take our word for it — print the exact payload for your most recent
+              session. No key needed, nothing is sent:
+            </p>
+            <pre className="mt-3 font-mono text-[12px] leading-[1.7] text-ink whitespace-pre-wrap break-all border border-line rounded-btn bg-canvas px-4 py-3 m-0 shadow-track">
+              <span className="block">
+                <span className="text-faint select-none">$ </span>npx tokenmoth report --dry-run
+              </span>
+            </pre>
+          </Section>
+
           <Section label="never sent">
             <ul className="space-y-1.5 text-[13px] text-muted leading-relaxed">
               {NEVER.map((line) => (
