@@ -65,3 +65,28 @@ Everything is reproducible; the only stateful pieces are the **Supabase Postgres
   sqlx prepared statements on Lambda.
 - API keys (`api_keys.key`) survive the dump, so installed CLI hooks keep working
   after cutover (same key, repoint only if the API URL changes).
+
+## CI release role (IAM, manual — not codified)
+
+`release.yml` assumes `arn:aws:iam::551504153648:role/tokenmoth-ci-s3-publish`
+via OIDC. Its inline policy `s3-put-cli-tarballs` must allow `s3:PutObject` on
+BOTH artifact paths the workflow writes (versioned + un-versioned fallback):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "s3:PutObject",
+    "Resource": [
+      "arn:aws:s3:::tokenmoth-dist/tokenmoth-*.tar.gz",
+      "arn:aws:s3:::tokenmoth-dist/releases/v*/tokenmoth-*.tar.gz"
+    ]
+  }]
+}
+```
+
+Set with `aws iam put-role-policy --role-name tokenmoth-ci-s3-publish
+--policy-name s3-put-cli-tarballs --policy-document '<json>'`. The v0.1.2
+release (2026-06-12) failed with AccessDenied because the `releases/v*` path
+was missing here. If `release.yml` ever writes new paths, update this policy.
