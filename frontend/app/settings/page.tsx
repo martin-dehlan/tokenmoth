@@ -1,8 +1,7 @@
 import TopRail from "@/components/TopRail";
 import KeyManager from "@/components/KeyManager";
-import PlanSelect from "@/components/PlanSelect";
 import PlanBilling from "@/components/PlanBilling";
-import BudgetSetting from "@/components/BudgetSetting";
+import PlanBudget from "@/components/PlanBudget";
 import DangerZone from "@/components/DangerZone";
 
 export const dynamic = "force-dynamic";
@@ -32,21 +31,15 @@ export default function Settings() {
           </section>
 
           <section className="px-4 sm:px-8 pt-6 pb-7 border-t border-hair">
-            <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">monthly budget</h2>
+            <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">
+              claude plan &amp; budget
+            </h2>
             <p className="text-[12px] text-muted mb-4">
-              Set a monthly spend target. The dashboard shows a banner at 80% and 100% of budget
-              (estimated API-equivalent cost).
+              How you pay for Claude decides what&apos;s worth tracking: a flat subscription gets
+              the ROI view, pay-as-you-go gets a real-dollar budget. Plan choice is stored in this
+              browser only.
             </p>
-            <BudgetSetting />
-          </section>
-
-          <section className="px-4 sm:px-8 pt-6 pb-7 border-t border-hair">
-            <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">your plan</h2>
-            <p className="text-[12px] text-muted mb-4">
-              Pick your subscription to see the ROI multiplier on the dashboard — how your usage
-              compares to API pay-as-you-go pricing. Stored in this browser only.
-            </p>
-            <PlanSelect />
+            <PlanBudget />
           </section>
 
           <section className="px-4 sm:px-8 pt-6 pb-8 border-t border-hair">
