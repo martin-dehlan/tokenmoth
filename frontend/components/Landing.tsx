@@ -120,9 +120,12 @@ export default function Landing() {
                 {busy ? "redirecting…" : "Get your key"}
                 <span aria-hidden>→</span>
               </button>
-              <span className="text-[10px] text-faint">
-                transcripts stay local — only token counts are sent
-              </span>
+              <Link
+                href="/data"
+                className="text-[10px] text-faint underline decoration-dotted underline-offset-2 hover:text-muted transition-colors"
+              >
+                transcripts stay local — see exactly what&apos;s sent →
+              </Link>
             </div>
 
             {err && <p className="mt-3 text-[11px] text-warn">{err}</p>}
