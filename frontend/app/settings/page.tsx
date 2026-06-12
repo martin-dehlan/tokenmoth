@@ -1,6 +1,5 @@
 import TopRail from "@/components/TopRail";
 import KeyManager from "@/components/KeyManager";
-import PlanBilling from "@/components/PlanBilling";
 import PlanBudget from "@/components/PlanBudget";
 import DangerZone from "@/components/DangerZone";
 
@@ -20,14 +19,6 @@ export default function Settings() {
               off immediately.
             </p>
             <KeyManager />
-          </section>
-
-          <section className="px-4 sm:px-8 pt-6 pb-7 border-t border-hair">
-            <h2 className="text-[10px] uppercase tracking-label text-muted mb-1">subscription</h2>
-            <p className="text-[12px] text-muted mb-4">
-              Your TokenMoth plan and this month&apos;s usage against its allowance.
-            </p>
-            <PlanBilling />
           </section>
 
           <section className="px-4 sm:px-8 pt-6 pb-7 border-t border-hair">
