@@ -1,6 +1,6 @@
 {
   "name": "tokenmoth",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Track, aggregate and visualize Claude Code token usage & cost — per Git repo. Zero-setup CLI that installs a Claude Code hook.",
   "keywords": [
     "claude",
