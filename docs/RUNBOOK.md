@@ -79,8 +79,8 @@ BOTH artifact paths the workflow writes (versioned + un-versioned fallback):
     "Effect": "Allow",
     "Action": "s3:PutObject",
     "Resource": [
-      "arn:aws:s3:::tokenmoth-dist/tokenmoth-*.tar.gz",
-      "arn:aws:s3:::tokenmoth-dist/releases/v*/tokenmoth-*.tar.gz"
+      "arn:aws:s3:::tokenmoth-dist/tokenmoth-*.tar.gz*",
+      "arn:aws:s3:::tokenmoth-dist/releases/v*/tokenmoth-*.tar.gz*"
     ]
   }]
 }
@@ -89,4 +89,6 @@ BOTH artifact paths the workflow writes (versioned + un-versioned fallback):
 Set with `aws iam put-role-policy --role-name tokenmoth-ci-s3-publish
 --policy-name s3-put-cli-tarballs --policy-document '<json>'`. The v0.1.2
 release (2026-06-12) failed with AccessDenied because the `releases/v*` path
-was missing here. If `release.yml` ever writes new paths, update this policy.
+was missing here. The trailing `*` after `.tar.gz` covers the `.sha256`
+checksum files (second v0.1.2 failure). If `release.yml` ever writes new
+paths, update this policy.
