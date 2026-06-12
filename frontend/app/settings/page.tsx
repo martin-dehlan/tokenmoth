@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default function Settings() {
   return (
     <>
-      <TopRail active="settings" since="30d" />
+      <TopRail active="settings" showWindow={false} />
       <main className="mx-auto max-w-3xl px-5">
         <div className="my-7 rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
           <section className="px-4 sm:px-8 pt-8 pb-7">
