@@ -23,6 +23,7 @@ export default function KeyManager() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
+  const [showRevoked, setShowRevoked] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +76,11 @@ export default function KeyManager() {
   const setupCmd = created
     ? `${INSTALL_CMD}\ntokenmoth setup --key ${created.key} --api-url ${SETUP_API_URL}`
     : "";
+
+  // Revoked keys are dead weight that only grows — keep them for the audit trail
+  // but collapse them so the active list stays short.
+  const active = keys.filter((k) => k.active);
+  const revoked = keys.filter((k) => !k.active);
 
   return (
     <div className="flex flex-col gap-6">
@@ -144,31 +150,61 @@ export default function KeyManager() {
         ) : keys.length === 0 ? (
           <div className="py-6 text-[12px] text-faint">no keys yet</div>
         ) : (
-          keys.map((k) => (
-            <div
-              key={k.id}
-              className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 items-center py-2.5 border-b border-hair text-[12px] sm:grid-cols-[1fr_1.2fr_auto_auto]"
-            >
-              {/* phones: row 1 = key + status, row 2 = label + date;
-                  sm+: original 4-column ledger (order resets to DOM order) */}
-              <code className="order-1 sm:order-none font-mono text-ink break-all">{k.masked}</code>
-              <span className="order-3 sm:order-none text-muted truncate">{k.label ?? "—"}</span>
-              <span className="order-4 sm:order-none justify-self-end sm:justify-self-auto font-mono text-faint">
-                {k.created_at.slice(0, 10)}
-              </span>
-              <div className="order-2 sm:order-none flex justify-end">
-                {k.active ? (
-                  <button className="btn text-warn" onClick={() => revoke(k.id)}>
-                    revoke
-                  </button>
-                ) : (
-                  <span className="tag" style={{ color: "var(--faint)", background: "var(--raise)" }}>
-                    revoked
-                  </span>
-                )}
+          <>
+            {active.map((k) => (
+              <KeyRow key={k.id} k={k} onRevoke={revoke} />
+            ))}
+            {active.length === 0 && (
+              <div className="py-6 text-[12px] text-faint">
+                no active keys — create one above
               </div>
-            </div>
-          ))
+            )}
+
+            {revoked.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowRevoked((v) => !v)}
+                  className="mt-1 py-2.5 text-left text-[11px] uppercase tracking-label text-muted hover:text-ink transition-colors"
+                  aria-expanded={showRevoked}
+                >
+                  {showRevoked ? "▾" : "▸"} {revoked.length} revoked{" "}
+                  {revoked.length === 1 ? "key" : "keys"}
+                </button>
+                {showRevoked &&
+                  revoked.map((k) => <KeyRow key={k.id} k={k} onRevoke={revoke} dim />)}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// One key row: phones get a 2-row card (key+status, then label+date); sm+ keeps
+// the 4-column ledger. Revoked rows render dimmed.
+function KeyRow({ k, onRevoke, dim = false }: { k: Key; onRevoke: (id: string) => void; dim?: boolean }) {
+  return (
+    <div
+      className={`grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 items-center py-2.5 border-b border-hair text-[12px] sm:grid-cols-[1fr_1.2fr_auto_auto] ${
+        dim ? "opacity-60" : ""
+      }`}
+    >
+      <code className="order-1 sm:order-none font-mono text-ink break-all">{k.masked}</code>
+      <span className="order-3 sm:order-none text-muted truncate">{k.label ?? "—"}</span>
+      <span className="order-4 sm:order-none justify-self-end sm:justify-self-auto font-mono text-faint">
+        {k.created_at.slice(0, 10)}
+      </span>
+      <div className="order-2 sm:order-none flex justify-end">
+        {k.active ? (
+          <button className="btn text-warn" onClick={() => onRevoke(k.id)}>
+            revoke
+          </button>
+        ) : (
+          <span className="tag" style={{ color: "var(--faint)", background: "var(--raise)" }}>
+            revoked
+          </span>
         )}
       </div>
     </div>
