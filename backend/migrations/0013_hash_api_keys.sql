@@ -2,6 +2,11 @@
 -- the server only ever needs an equality lookup, never the raw secret.
 create extension if not exists pgcrypto;
 
+-- pgcrypto may already live in a non-default schema (Supabase installs
+-- extensions into `extensions`); make digest() resolvable for this migration's
+-- transaction regardless. Missing schemas in search_path are tolerated.
+set local search_path = public, extensions;
+
 alter table api_keys add column if not exists key_hash text;
 alter table api_keys add column if not exists key_prefix text;
 
