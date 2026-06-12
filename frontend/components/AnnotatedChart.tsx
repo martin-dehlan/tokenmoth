@@ -47,6 +47,7 @@ export default function AnnotatedChart({
       spikeI={spikeI}
       peakValue={peakValue}
       peakLabel={`peak ${format(peakValue)}`}
+      valueLabels={series.map((s) => s.values.map(format))}
     />
   );
 }
