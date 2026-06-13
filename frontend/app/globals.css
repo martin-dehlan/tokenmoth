@@ -326,10 +326,19 @@ body {
 /* Demo intensity hook (#207): the recording sets data-motion="full" on <html>
    to make transitions read clearly on camera; prod stays calm by default. */
 :root[data-motion="full"] {
-  --motion-stagger: 70ms;
+  --motion-stagger: 90ms;
 }
 :root[data-motion="full"] .page-enter {
   animation-duration: var(--motion-slow);
+}
+/* Bars: for the camera only, a slower smooth fill + a short start delay so the
+   empty->full sweep is always caught, plus a stronger row stagger. Prod keeps
+   the quick, immediate fill above. */
+:root[data-motion="full"] [data-reveal="in"] > * .track > i,
+:root[data-motion="full"] [data-reveal="in"] > *[data-bar],
+:root[data-motion="full"] [data-reveal="in"][data-bar] {
+  animation-duration: 720ms;
+  animation-delay: calc(200ms + var(--motion-stagger) * var(--d, 0));
 }
 
 /* Accessibility: honor the OS "reduce motion" setting globally. Any motion
