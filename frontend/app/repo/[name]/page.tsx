@@ -5,6 +5,7 @@ import SessionList from "@/components/SessionList";
 import { fetchRepoSeries, fetchSessions, fmtTokens, fmtChartLabel, padSeriesToWindow, distinctDays } from "@/lib/data";
 import { PAGE_MAIN, WINDOWS } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
+import { getTimezone } from "@/lib/tz";
 
 export const dynamic = "force-dynamic";
 
@@ -19,12 +20,13 @@ export default async function RepoDetail({
   const since = (WINDOWS as readonly string[]).includes(searchParams.since ?? "")
     ? searchParams.since!
     : "30d";
+  const tz = getTimezone();
   const supabase = createClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
   const [{ points, source, error }, sessions] = await Promise.all([
-    fetchRepoSeries(session?.access_token ?? "", name, since),
+    fetchRepoSeries(session?.access_token ?? "", name, since, tz),
     fetchSessions(session?.access_token ?? "", since, name),
   ]);
   const live = source === "live";
@@ -40,8 +42,8 @@ export default async function RepoDetail({
     }),
     { tokens: 0, sessions: 0, input: 0, output: 0, cread: 0, ccreate: 0 },
   );
-  const activeDays = Math.max(1, distinctDays(points));
-  const chartPoints = padSeriesToWindow(points, since);
+  const activeDays = Math.max(1, distinctDays(points, tz));
+  const chartPoints = padSeriesToWindow(points, since, tz);
 
   const breakdown = [
     { label: "input", v: sum.input, color: "var(--chart-1)" },
@@ -101,7 +103,7 @@ export default async function RepoDetail({
                   { name: "input", color: "var(--chart-2)", dashed: true, values: chartPoints.map((p) => p.inputTokens) },
                   { name: "output", color: "var(--chart-3)", dashed: true, values: chartPoints.map((p) => p.outputTokens) },
                 ]}
-                xLabels={chartPoints.map((p) => fmtChartLabel(p.day, since))}
+                xLabels={chartPoints.map((p) => fmtChartLabel(p.day, since, tz))}
                 format={fmtTokens}
               />
             ) : (

@@ -4,6 +4,7 @@ import "./globals.css";
 import PostHogProvider from "@/components/PostHogProvider";
 import ConsentBanner from "@/components/ConsentBanner";
 import Footer from "@/components/Footer";
+import TimezoneCookie from "@/components/TimezoneCookie";
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="flex-1 flex flex-col">{children}</div>
           <Footer />
           <ConsentBanner />
+          <TimezoneCookie />
         </PostHogProvider>
       </body>
     </html>
