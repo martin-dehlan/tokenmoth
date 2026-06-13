@@ -12,8 +12,7 @@ const t = {
     draft: (
       <>
         <strong>Draft — pending legal review.</strong> This text is a template and not yet
-        legally approved. Have it reviewed by a lawyer before publishing (see{" "}
-        <code>docs/legal/anwalt-briefing.md</code>).
+        legally approved. Have it reviewed by a lawyer before publishing.
       </>
     ),
   },
@@ -25,7 +24,7 @@ const t = {
       <>
         <strong>Entwurf — anwaltliche Prüfung ausstehend.</strong> Dieser Text ist eine Vorlage
         und noch nicht rechtsverbindlich freigegeben. Vor Veröffentlichung von einer
-        Anwältin/einem Anwalt prüfen lassen (siehe <code>docs/legal/anwalt-briefing.md</code>).
+        Anwältin/einem Anwalt prüfen lassen.
       </>
     ),
   },

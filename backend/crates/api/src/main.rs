@@ -1608,7 +1608,7 @@ async fn me(
 /// Deleting the `users` row cascades to `api_keys` and `token_logs`, so all
 /// personal data held by this service is removed. Note: the Supabase auth user
 /// (email/identity) lives in Supabase and must additionally be deleted via the
-/// Supabase admin API — tracked separately; see docs/legal/anwalt-briefing.md.
+/// Supabase admin API — tracked separately.
 async fn delete_me(
     State(st): State<AppState>,
     headers: HeaderMap,
@@ -2211,7 +2211,7 @@ mod tests {
 
     #[test]
     fn repo_from_path_basename() {
-        assert_eq!(repo_from_path("/a/b/illumine/"), "illumine");
+        assert_eq!(repo_from_path("/a/b/myrepo/"), "myrepo");
         assert_eq!(repo_from_path(""), "unknown");
     }
 

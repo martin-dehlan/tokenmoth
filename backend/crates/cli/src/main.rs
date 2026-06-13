@@ -1523,8 +1523,8 @@ mod tests {
 
     #[test]
     fn repo_basename_trims_trailing_slash() {
-        assert_eq!(repo_from_path("/a/b/illumine/"), "illumine");
-        assert_eq!(repo_from_path("/a/b/illumine"), "illumine");
+        assert_eq!(repo_from_path("/a/b/myrepo/"), "myrepo");
+        assert_eq!(repo_from_path("/a/b/myrepo"), "myrepo");
     }
 
     #[test]
@@ -1791,10 +1791,10 @@ mod tests {
         // No path here is a real git repo, so resolution falls through to the
         // basename of the most-frequent transcript cwd (#109 fallback path).
         let mut counts = HashMap::new();
-        counts.insert("/no/such/illumine".to_string(), 50);
+        counts.insert("/no/such/myrepo".to_string(), 50);
         counts.insert("/no/such/home".to_string(), 3);
-        assert_eq!(resolve_repo(None, &counts), "illumine");
+        assert_eq!(resolve_repo(None, &counts), "myrepo");
         // A non-repo hook cwd doesn't win over the dominant transcript cwd.
-        assert_eq!(resolve_repo(Some("/no/such/home"), &counts), "illumine");
+        assert_eq!(resolve_repo(Some("/no/such/home"), &counts), "myrepo");
     }
 }
