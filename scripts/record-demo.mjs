@@ -93,23 +93,27 @@ function stopServer(child) {
 // ---- page choreography -----------------------------------------------------
 
 // Eased scroll to an absolute Y, animated in the page so the video captures it.
-async function easeScrollTo(page, y, ms = SCROLL_MS) {
+// Duration scales with distance (constant, gentle velocity) so every scroll
+// moves only a few px per recorded frame — no jerky stepping on long jumps.
+async function easeScrollTo(page, y, msOverride) {
   await page.evaluate(
-    ({ y, ms }) =>
+    ({ y, msOverride }) =>
       new Promise((res) => {
         const start = window.scrollY;
         const dist = y - start;
+        // ~3.2ms/px → ~12px per 25fps frame; clamped so tiny/huge jumps stay sane.
+        const ms = msOverride ?? Math.min(2600, Math.max(700, Math.abs(dist) * 3.2));
         const t0 = performance.now();
         const step = (now) => {
           const p = Math.min(1, (now - t0) / ms);
-          const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2; // easeInOutQuad
+          const e = -(Math.cos(Math.PI * p) - 1) / 2; // easeInOutSine — gentle both ends
           window.scrollTo(0, start + dist * e);
           if (p < 1) requestAnimationFrame(step);
           else res();
         };
         requestAnimationFrame(step);
       }),
-    { y, ms },
+    { y, msOverride },
   );
 }
 
@@ -150,7 +154,7 @@ async function runTour(page) {
 
   // 3) Repo detail — chart + breakdown + session history. ?demo=arrival stages
   // one new session that slides into the history while we're watching it.
-  await goto(page, BASE_URL + "/repo/cybermusic?demo=arrival");
+  await goto(page, BASE_URL + "/repo/aurora-api?demo=arrival");
   await page.waitForSelector("main", { timeout: 30_000 });
   await sleep(SECTION_PAUSE);
   await revealSection(page, "h2").catch(() => {});
@@ -160,7 +164,7 @@ async function runTour(page) {
   await sleep(1800);
 
   // 4) Drill into a session — the cost-anatomy payoff.
-  await goto(page, BASE_URL + "/session/demo-cybermusic-2");
+  await goto(page, BASE_URL + "/session/demo-aurora-api-2");
   await page.waitForSelector("main", { timeout: 30_000 });
   await sleep(SECTION_PAUSE);
   for (const sel of ["h2", "section:last-of-type"]) {

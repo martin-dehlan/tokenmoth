@@ -16,8 +16,8 @@ OUT_BASE="${2:-$ROOT/docs/demo/tokenmoth-demo}"
 OUT_DIR="$(dirname "$OUT_BASE")"
 
 # Defaults chosen so a ~22s tour lands the GIF under GitHub's ~10MB inline cap.
-GIF_FPS="${GIF_FPS:-11}"
-GIF_WIDTH="${GIF_WIDTH:-760}"
+GIF_FPS="${GIF_FPS:-10}"
+GIF_WIDTH="${GIF_WIDTH:-680}"
 
 command -v ffmpeg >/dev/null 2>&1 || { echo "ffmpeg not found on PATH" >&2; exit 1; }
 [ -f "$IN" ] || { echo "input not found: $IN (run scripts/record-demo.mjs first)" >&2; exit 1; }
