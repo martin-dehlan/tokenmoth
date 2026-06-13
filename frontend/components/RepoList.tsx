@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import RepoBreaker from "./RepoBreaker";
+import RevealOnView from "./RevealOnView";
 import { RepoUsage, INSTRUMENT_COLORS } from "@/lib/data";
 
 type Sort = "tokens" | "sessions" | "recent";
@@ -51,7 +52,7 @@ export default function RepoList({ repos }: { repos: RepoUsage[] }) {
         <div className="text-[12px] text-faint py-6 text-center">no repos match “{q}”.</div>
       ) : (
         <>
-          <div className="divide-y divide-hair">
+          <RevealOnView className="divide-y divide-hair">
             {visible.map((r, i) => (
               <RepoBreaker
                 key={r.repo}
@@ -60,7 +61,7 @@ export default function RepoList({ repos }: { repos: RepoUsage[] }) {
                 color={INSTRUMENT_COLORS[i % INSTRUMENT_COLORS.length]}
               />
             ))}
-          </div>
+          </RevealOnView>
           {(hidden > 0 || expanded) && sorted.length > COLLAPSED && (
             <button
               type="button"
