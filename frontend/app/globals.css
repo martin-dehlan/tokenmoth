@@ -273,6 +273,36 @@ body {
   animation-delay: calc(var(--motion-stagger) * var(--d, 0));
 }
 
+/* List rows: fade + slide in on first view, staggered (#205). Applied to a
+   [data-reveal].list-enter container (e.g. SessionList). Rows render normally
+   until revealed, so no flash; reduced motion (below) collapses it. */
+@keyframes row-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+[data-reveal="in"].list-enter > * {
+  animation: row-enter var(--motion) var(--ease-out) both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0));
+}
+
+/* New-item arrival: a row flagged [data-new] (an id not seen before) slides in
+   from the top with a brief highlight that settles to transparent. Declared
+   after row-enter so it wins for the same element. (#205) */
+@keyframes row-arrive {
+  0% { opacity: 0; transform: translateY(-12px); }
+  60% { opacity: 1; }
+  100% { transform: none; }
+}
+@keyframes row-flash {
+  from { background-color: var(--accent-faint); }
+  to { background-color: transparent; }
+}
+.list-enter > [data-new] {
+  animation:
+    row-arrive var(--motion) var(--ease-out) both,
+    row-flash var(--motion-slow) var(--ease-out) both;
+}
+
 /* Accessibility: honor the OS "reduce motion" setting globally. Any motion
    added for Milestone 11 must degrade to no movement here. Left unlayered on
    purpose — unlayered rules beat @layer rules, so this can't be overridden by
