@@ -240,12 +240,12 @@ body {
   }
 }
 
-/* Bar grow-in on first scroll into view (#204). A container marked
-   [data-reveal] (rendered by <RevealOnView>) grows the .track bars — or a
-   single [data-bar] element — inside it from 0 to full width, staggered by
-   row. Unlayered so it isn't reordered against Tailwind's utility layer.
-   Bars sit at final width until data-reveal flips to "in", so there's no
-   flash before hydration and reduced motion (below) collapses it to no-op. */
+/* Bar grow-in (#204). A container marked [data-reveal] (rendered by
+   <RevealOnView>) fills the .track bars — or a single [data-bar] element —
+   from 0 to full width, staggered by row, every time it's revealed. Bars
+   start *empty* (scaleX 0) and fill on reveal, so the fill is always seen as a
+   fill rather than a snap from full. Unlayered so it isn't reordered against
+   Tailwind's utility layer. Reduced motion (below) reveals immediately at full. */
 @keyframes bar-grow-x {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
@@ -254,6 +254,14 @@ body {
 [data-reveal] .track > i,
 [data-reveal] [data-bar] {
   transform-origin: left center;
+}
+
+/* Primed-but-not-yet-revealed: hold empty so the reveal is a clean fill.
+   The no-IntersectionObserver / reduced-motion fallbacks flip to "in"
+   immediately, so bars are never stuck empty. */
+[data-reveal="out"] .track > i,
+[data-reveal="out"] [data-bar] {
+  transform: scaleX(0);
 }
 
 /* Stagger: each direct child gets an index var the bars inside inherit. */
@@ -269,7 +277,7 @@ body {
 [data-reveal="in"] > * .track > i,
 [data-reveal="in"] > *[data-bar],
 [data-reveal="in"][data-bar] {
-  animation: bar-grow-x var(--motion) var(--ease-out) both;
+  animation: bar-grow-x var(--motion-slow) var(--ease-out) both;
   animation-delay: calc(var(--motion-stagger) * var(--d, 0));
 }
 
