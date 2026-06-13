@@ -303,6 +303,27 @@ body {
     row-flash var(--motion-slow) var(--ease-out) both;
 }
 
+/* Page transition (#206): app/template.tsx remounts per navigation, so this
+   fade replays on each route change. Opacity only — a transform would break
+   sticky/fixed descendants mid-animation. Raised slightly for the recording
+   via the demo hook below. */
+@keyframes page-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.page-enter {
+  animation: page-enter var(--motion) var(--ease-out) both;
+}
+
+/* Demo intensity hook (#207): the recording sets data-motion="full" on <html>
+   to make transitions read clearly on camera; prod stays calm by default. */
+:root[data-motion="full"] {
+  --motion-stagger: 70ms;
+}
+:root[data-motion="full"] .page-enter {
+  animation-duration: var(--motion-slow);
+}
+
 /* Accessibility: honor the OS "reduce motion" setting globally. Any motion
    added for Milestone 11 must degrade to no movement here. Left unlayered on
    purpose — unlayered rules beat @layer rules, so this can't be overridden by
