@@ -240,6 +240,39 @@ body {
   }
 }
 
+/* Bar grow-in on first scroll into view (#204). A container marked
+   [data-reveal] (rendered by <RevealOnView>) grows the .track bars — or a
+   single [data-bar] element — inside it from 0 to full width, staggered by
+   row. Unlayered so it isn't reordered against Tailwind's utility layer.
+   Bars sit at final width until data-reveal flips to "in", so there's no
+   flash before hydration and reduced motion (below) collapses it to no-op. */
+@keyframes bar-grow-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+[data-reveal] .track > i,
+[data-reveal] [data-bar] {
+  transform-origin: left center;
+}
+
+/* Stagger: each direct child gets an index var the bars inside inherit. */
+[data-reveal] > * { --d: 0; }
+[data-reveal] > *:nth-child(2) { --d: 1; }
+[data-reveal] > *:nth-child(3) { --d: 2; }
+[data-reveal] > *:nth-child(4) { --d: 3; }
+[data-reveal] > *:nth-child(5) { --d: 4; }
+[data-reveal] > *:nth-child(6) { --d: 5; }
+[data-reveal] > *:nth-child(7) { --d: 6; }
+[data-reveal] > *:nth-child(n + 8) { --d: 7; }
+
+[data-reveal="in"] > * .track > i,
+[data-reveal="in"] > *[data-bar],
+[data-reveal="in"][data-bar] {
+  animation: bar-grow-x var(--motion) var(--ease-out) both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0));
+}
+
 /* Accessibility: honor the OS "reduce motion" setting globally. Any motion
    added for Milestone 11 must degrade to no movement here. Left unlayered on
    purpose — unlayered rules beat @layer rules, so this can't be overridden by
