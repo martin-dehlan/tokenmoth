@@ -53,5 +53,34 @@ CSS can opt into:
 :root[data-motion="full"] { --motion-stagger: 70ms; /* …richer for camera */ }
 ```
 
-This lets the tour look lively without shipping a busy everyday app. The exact
-per-animation prod/demo defaults are decided in #207.
+This lets the tour look lively without shipping a busy everyday app.
+
+## Restraint policy (#207)
+
+What ships to the real app vs the recording, and how often each fires. The rule
+of thumb: **animate on first appearance, then stay still** — a daily user
+shouldn't see things re-animate on every refresh.
+
+| Animation | Ships to prod? | Fires | Prod intensity | Demo (`data-motion="full"`) |
+|-----------|----------------|-------|----------------|------------------------------|
+| Chart line draw (`ChartCanvas`) | yes | once, on mount-in-view | as-is | as-is |
+| Bar grow-in (#204) | yes | once, on first scroll into view | `--motion`, 45ms stagger | 70ms stagger |
+| Row enter (#205) | yes | once, on first scroll into view | subtle fade+slide | 70ms stagger |
+| New-item arrival (#205) | yes | **only on genuinely new ids**, never on re-render | slide + brief highlight | same (staged via `?demo=arrival`) |
+| Page transition (#206) | yes | per navigation | opacity only, `--motion` | `--motion-slow` |
+| Hero number count-up | **demo-only** for now | — | off | (future) |
+
+Guardrails (all enforced):
+
+- `prefers-reduced-motion` collapses every animation to no movement (global rule
+  in `globals.css`).
+- No animation gates content: bars/rows render at final state until revealed, so
+  there's never invisible content waiting on JS.
+- Arrival fires only when an id wasn't seen before — `SessionList` seeds the
+  initial ids as already-seen, so first paint is calm.
+- Page transition is opacity-only (no transform) to avoid breaking sticky/fixed.
+- One escape hatch, not per-component flags: `NEXT_PUBLIC_DEMO_MOTION=full` sets
+  `<html data-motion="full">`, which the recording uses to raise intensity.
+
+Count-up on the big hero numbers tested as distracting for daily use, so it's
+deferred to demo-only (not yet implemented) rather than shipped.
