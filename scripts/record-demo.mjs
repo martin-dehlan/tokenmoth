@@ -117,18 +117,18 @@ async function easeScrollTo(page, y, msOverride) {
   );
 }
 
-// Scroll a selector to ~1/4 from the top, then hold.
-async function revealSection(page, selector, pause = SECTION_PAUSE) {
-  const y = await page.evaluate((sel) => {
-    const el = document.querySelector(sel);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return Math.max(0, window.scrollY + r.top - window.innerHeight * 0.22);
-  }, selector);
-  if (y === null) return false;
-  await easeScrollTo(page, y);
-  await sleep(pause);
-  return true;
+// One slow, continuous pan from the current position to the bottom of the page
+// — a single smooth move per page instead of many small scroll hops.
+async function panToBottom(page) {
+  const { target, start } = await page.evaluate(() => ({
+    target: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+    start: window.scrollY,
+  }));
+  const dist = Math.abs(target - start);
+  if (dist < 8) return;
+  // Slow cinematic pace (~5ms/px → ~8px per 25fps frame), clamped.
+  const ms = Math.min(5200, Math.max(1600, dist * 5));
+  await easeScrollTo(page, target, ms);
 }
 
 async function goto(page, url) {
@@ -137,41 +137,37 @@ async function goto(page, url) {
 }
 
 async function runTour(page) {
-  // 1) Dashboard — the headline number, then a tour down the panel.
+  // One slow pan down per page — no small hops.
+
+  // 1) Dashboard — hold on the headline, then pan the whole panel.
   await goto(page, BASE_URL + "/");
   await page.waitForSelector("#hero", { timeout: 30_000 });
+  await sleep(SECTION_PAUSE + 500);
+  await panToBottom(page);
   await sleep(SECTION_PAUSE);
-  for (const sel of ["section:has(h2)", "#instruments", "#instruments + section"]) {
-    await revealSection(page, sel).catch(() => {});
-  }
-  // Scroll back to top to frame the next transition.
-  await easeScrollTo(page, 0);
-  await sleep(300);
 
   // 2) Privacy / "what leaves your machine" — trust beat.
   await goto(page, BASE_URL + "/data");
-  await revealSection(page, "table");
+  await sleep(SECTION_PAUSE);
+  await panToBottom(page);
+  await sleep(500);
 
-  // 3) Repo detail — chart + breakdown + session history. ?demo=arrival stages
-  // one new session that slides into the history while we're watching it.
+  // 3) Repo detail — pan to the session history; the staged arrival (~3s after
+  // mount) lands as we reach it.
   await goto(page, BASE_URL + "/repo/aurora-api?demo=arrival");
   await page.waitForSelector("main", { timeout: 30_000 });
   await sleep(SECTION_PAUSE);
-  await revealSection(page, "h2").catch(() => {});
-  // Land on the session history and hold so the staged arrival (fires ~3s after
-  // the list mounts) plays on camera.
-  await revealSection(page, "section:last-of-type").catch(() => {});
-  await sleep(1800);
+  await panToBottom(page);
+  await sleep(2200);
 
-  // 4) Drill into a session — the cost-anatomy payoff.
+  // 4) Drill into a session — pan the cost-anatomy payoff.
   await goto(page, BASE_URL + "/session/demo-aurora-api-2");
   await page.waitForSelector("main", { timeout: 30_000 });
   await sleep(SECTION_PAUSE);
-  for (const sel of ["h2", "section:last-of-type"]) {
-    await revealSection(page, sel).catch(() => {});
-  }
+  await panToBottom(page);
+  await sleep(SECTION_PAUSE);
 
-  // 5) Land back on the headline number for the outro.
+  // 5) End back on the headline number.
   await goto(page, BASE_URL + "/");
   await page.waitForSelector("#hero");
   await sleep(SECTION_PAUSE + 300);
