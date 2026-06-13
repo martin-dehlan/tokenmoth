@@ -39,7 +39,9 @@ demo/recording branch  ──►  record-demo.mjs  ──►  recordings/demo.we
 - Viewport: desktop `1440×900 @2x` (constants `VIEWPORT` / `SCALE`).
 - GIF size/quality: `GIF_FPS` (11) and `GIF_WIDTH` (760) env vars for
   `encode-demo.sh`, e.g. `GIF_FPS=12 GIF_WIDTH=900 scripts/encode-demo.sh`.
-  Defaults keep a ~22s tour under GitHub's ~10MB inline-GIF cap (currently 7.8MB).
+  Defaults keep the ~27s motion tour under GitHub's ~10MB inline-GIF cap
+  (currently 9.5MB). Record on `demo/recording` with NEXT_PUBLIC_DEMO_MOTION=full
+  (the script sets it) so bar grow-in, row arrival and page fades are captured.
 
 `recordings/` is intermediate and git-ignored; only `docs/demo/` is committed.
 The two scripts are reusable and meant to be kept on a clean branch — only the

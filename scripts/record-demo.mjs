@@ -62,7 +62,11 @@ async function ensureServer() {
     cwd: FRONTEND,
     shell: true,
     stdio: "ignore",
-    env: { ...process.env, TOKENMOTH_API_URL: "http://127.0.0.1:9" },
+    env: {
+      ...process.env,
+      TOKENMOTH_API_URL: "http://127.0.0.1:9",
+      NEXT_PUBLIC_DEMO_MOTION: "full", // raise motion intensity for the camera (#207)
+    },
   });
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
@@ -144,13 +148,16 @@ async function runTour(page) {
   await goto(page, BASE_URL + "/data");
   await revealSection(page, "table");
 
-  // 3) Repo detail — chart + breakdown + session history.
-  await goto(page, BASE_URL + "/repo/cybermusic");
+  // 3) Repo detail — chart + breakdown + session history. ?demo=arrival stages
+  // one new session that slides into the history while we're watching it.
+  await goto(page, BASE_URL + "/repo/cybermusic?demo=arrival");
   await page.waitForSelector("main", { timeout: 30_000 });
   await sleep(SECTION_PAUSE);
-  for (const sel of ["h2", "section:last-of-type"]) {
-    await revealSection(page, sel).catch(() => {});
-  }
+  await revealSection(page, "h2").catch(() => {});
+  // Land on the session history and hold so the staged arrival (fires ~3s after
+  // the list mounts) plays on camera.
+  await revealSection(page, "section:last-of-type").catch(() => {});
+  await sleep(1800);
 
   // 4) Drill into a session — the cost-anatomy payoff.
   await goto(page, BASE_URL + "/session/demo-cybermusic-2");
