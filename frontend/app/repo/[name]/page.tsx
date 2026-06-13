@@ -14,9 +14,12 @@ export default async function RepoDetail({
   searchParams,
 }: {
   params: { name: string };
-  searchParams: { since?: string };
+  searchParams: { since?: string; demo?: string };
 }) {
   const name = decodeURIComponent(params.name);
+  // Demo-only: ?demo=arrival makes the session list stage one new-row arrival
+  // for the product tour. No effect in normal use.
+  const demoArrival = searchParams.demo === "arrival";
   const since = (WINDOWS as readonly string[]).includes(searchParams.since ?? "")
     ? searchParams.since!
     : "30d";
@@ -135,7 +138,7 @@ export default async function RepoDetail({
             <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">
               session history
             </h2>
-            <SessionList sessions={sessions} />
+            <SessionList sessions={sessions} demoArrival={demoArrival} />
           </section>
         </div>
 
