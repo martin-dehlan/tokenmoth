@@ -173,16 +173,14 @@ async function runTour(page) {
   await page.evaluate(() => window.dispatchEvent(new Event("tm-demo-arrival")));
   await sleep(3200);
 
-  // 3) Drill into a session — the deep-analytics payoff. Give it room: hold the
-  // hero, pan to the cost-anatomy / per-call growth chart and dwell so its bars
-  // build up, then pan the rest (hook overhead + MCP servers).
+  // 3) Drill into a session — the deep-analytics payoff. Hold the hero, then a
+  // slow pan down through cost anatomy + plugin overhead, landing on the MCP
+  // servers where the dead (0-call) one pulses — the "what to drop" insight.
   await goto(page, BASE_URL + "/session/demo-aurora-api-2");
   await page.waitForSelector("main", { timeout: 30_000 });
-  await sleep(SECTION_PAUSE + 800);
-  await panToSelector(page, "svg[aria-label='context size per API call']", 0.34);
-  await sleep(2600);
+  await sleep(SECTION_PAUSE + 700);
   await panToBottom(page);
-  await sleep(SECTION_PAUSE + 800);
+  await sleep(SECTION_PAUSE + 2200);
 
   // 4) Close on "what leaves your machine" — the privacy/trust beat, last.
   await goto(page, BASE_URL + "/data");
