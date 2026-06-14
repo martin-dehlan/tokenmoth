@@ -179,8 +179,10 @@ async function runTour(page) {
   await goto(page, BASE_URL + "/session/demo-aurora-api-2");
   await page.waitForSelector("main", { timeout: 30_000 });
   await sleep(SECTION_PAUSE + 700);
-  await panToBottom(page);
-  await sleep(SECTION_PAUSE + 2200);
+  // slow pan down (cost anatomy + overhead reveal as we pass) and land framed on
+  // the MCP servers — the "what to drop" payoff — then dwell on the red pulse.
+  await panToSelector(page, "#mcp", 0.12).catch(() => panToBottom(page));
+  await sleep(SECTION_PAUSE + 3500);
 
   // 4) Close on "what leaves your machine" — the privacy/trust beat, last.
   await goto(page, BASE_URL + "/data");
