@@ -297,11 +297,14 @@ async fn ingest(
         return Err((StatusCode::BAD_REQUEST, "token counts must be non-negative".to_string()));
     }
 
+    // Sanitize the client-provided repo (defense in depth, #217): coerce paths
+    // and drive/fs roots to "unknown" instead of storing them as repo names.
     let repo = t
         .repo
         .clone()
         .filter(|r| !r.is_empty())
-        .unwrap_or_else(|| repo_from_path(&t.project_path));
+        .map(|r| clean_repo(&r))
+        .unwrap_or_else(|| clean_repo(&t.project_path));
 
     // Idempotent per session_id (audit finding 5): re-fired SessionEnd updates
     // the row instead of double-counting cost.
@@ -483,6 +486,9 @@ struct ReposQuery {
     since: Option<String>,
     /// Max repos returned (1..=500, default 100).
     limit: Option<i64>,
+    /// Viewer IANA timezone (e.g. `Europe/Berlin`) for series bucketing.
+    /// Optional; invalid/missing falls back to UTC (see `safe_tz`).
+    tz: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -629,6 +635,18 @@ fn determine_grouping_unit(since: &str) -> &'static str {
     }
 }
 
+/// Validate a client-supplied IANA timezone (e.g. "Europe/Berlin"). Returns the
+/// name unchanged if it is a real zone, otherwise "UTC". This is bound as a query
+/// parameter (so it is injection-safe regardless), but validating here means an
+/// unknown name falls back gracefully instead of erroring the `AT TIME ZONE`
+/// expression at query time. Charts bucket by local calendar day/hour in this zone.
+fn safe_tz(tz: &Option<String>) -> String {
+    match tz {
+        Some(s) if s.parse::<chrono_tz::Tz>().is_ok() => s.clone(),
+        _ => "UTC".to_string(),
+    }
+}
+
 // ---- GET /v1/repos/:name/series : daily time-series for one repo -----------
 
 #[derive(sqlx::FromRow)]
@@ -672,11 +690,12 @@ async fn repo_series(
     let cutoff = parse_since(&since_label)
         .ok_or((StatusCode::BAD_REQUEST, "invalid `since` (use 24h|7d|30d|all)".to_string()))?;
     let unit = determine_grouping_unit(&since_label);
+    let tz = safe_tz(&q.tz);
 
     let rows: Vec<SeriesRow> = sqlx::query_as(
         r#"
         select
-            date_trunc($4, ended_at)                           as day,
+            date_trunc($4, ended_at at time zone $5) at time zone $5 as day,
             count(*)::bigint                                   as sessions,
             coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
             coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
@@ -694,6 +713,7 @@ async fn repo_series(
     .bind(&name)
     .bind(cutoff)
     .bind(unit)
+    .bind(&tz)
     .fetch_all(&st.db)
     .await
     .map_err(internal)?;
@@ -741,11 +761,12 @@ async fn account_series(
     let cutoff = parse_since(&since_label)
         .ok_or((StatusCode::BAD_REQUEST, "invalid `since` (use 24h|7d|30d|all)".to_string()))?;
     let unit = determine_grouping_unit(&since_label);
+    let tz = safe_tz(&q.tz);
 
     let rows: Vec<SeriesRow> = sqlx::query_as(
         r#"
         select
-            date_trunc($3, ended_at)                           as day,
+            date_trunc($3, ended_at at time zone $4) at time zone $4 as day,
             count(*)::bigint                                   as sessions,
             coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
             coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
@@ -761,6 +782,7 @@ async fn account_series(
     .bind(user_id)
     .bind(cutoff)
     .bind(unit)
+    .bind(&tz)
     .fetch_all(&st.db)
     .await
     .map_err(internal)?;
@@ -1161,9 +1183,10 @@ async fn dashboard(
 
     // 2) account-wide daily series
     let unit = determine_grouping_unit(&since);
+    let tz = safe_tz(&q.tz);
     let series_fut = sqlx::query_as::<_, SeriesRow>(
         r#"
-        select date_trunc($3, ended_at)                          as day,
+        select date_trunc($3, ended_at at time zone $4) at time zone $4 as day,
                count(*)::bigint                                   as sessions,
                coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
                coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
@@ -1174,7 +1197,7 @@ async fn dashboard(
         group by day order by day asc
         "#,
     )
-    .bind(user_id).bind(cutoff).bind(unit).fetch_all(&st.db);
+    .bind(user_id).bind(cutoff).bind(unit).bind(&tz).fetch_all(&st.db);
 
     // 3) per-model rollups
     let model_fut = sqlx::query_as::<_, ModelRow>(MODEL_ROLLUP_SQL)
@@ -2111,13 +2134,42 @@ fn bearer(h: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Last path segment, separator-agnostic (POSIX `/` and Windows `\`). A bare
+/// drive root like `D:\` reduces to `D:`, which `clean_repo` then rejects.
 fn repo_from_path(p: &str) -> String {
-    p.trim_end_matches('/')
-        .rsplit('/')
+    p.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
         .next()
         .filter(|s| !s.is_empty())
         .unwrap_or("unknown")
         .to_string()
+}
+
+/// True when `name` is not a real project name: empty, a relative marker, a
+/// drive/filesystem root, a bare drive letter, or still path-like.
+fn is_repo_rootish(name: &str) -> bool {
+    let n = name.trim();
+    if n.is_empty() || n == "." || n == ".." || n == "~" {
+        return true;
+    }
+    if n.contains('/') || n.contains('\\') {
+        return true;
+    }
+    let b = n.as_bytes();
+    n.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':'
+}
+
+/// Server-side guard (defense in depth): the CLI already sends a clean repo
+/// basename, but an old or buggy client could send a path or a drive/fs root
+/// (e.g. `D:\`). Reduce to a basename and coerce anything root-ish to "unknown"
+/// so such values never poison the per-repo rollups (#217).
+fn clean_repo(raw: &str) -> String {
+    let name = repo_from_path(raw);
+    if is_repo_rootish(&name) {
+        "unknown".to_string()
+    } else {
+        name
+    }
 }
 
 /// Map an internal error to a generic 500. The real error goes to the logs
@@ -2212,7 +2264,35 @@ mod tests {
     #[test]
     fn repo_from_path_basename() {
         assert_eq!(repo_from_path("/a/b/myrepo/"), "myrepo");
+        assert_eq!(repo_from_path("D:\\tokenmoth\\"), "tokenmoth");
+        assert_eq!(repo_from_path("C:\\a\\b"), "b");
+        assert_eq!(repo_from_path("D:\\"), "D:");
         assert_eq!(repo_from_path(""), "unknown");
+    }
+
+    #[test]
+    fn safe_tz_accepts_valid_iana_and_falls_back() {
+        assert_eq!(safe_tz(&Some("Europe/Berlin".into())), "Europe/Berlin");
+        assert_eq!(safe_tz(&Some("America/Los_Angeles".into())), "America/Los_Angeles");
+        assert_eq!(safe_tz(&Some("UTC".into())), "UTC");
+        // junk / injection attempts / empty / missing -> UTC
+        assert_eq!(safe_tz(&Some("Not/AZone".into())), "UTC");
+        assert_eq!(safe_tz(&Some("'; drop table token_logs;--".into())), "UTC");
+        assert_eq!(safe_tz(&Some(String::new())), "UTC");
+        assert_eq!(safe_tz(&None), "UTC");
+    }
+
+    #[test]
+    fn clean_repo_rejects_paths_and_drive_roots() {
+        // Clean basenames pass through.
+        assert_eq!(clean_repo("tokenmoth"), "tokenmoth");
+        assert_eq!(clean_repo("D:\\sippd\\"), "sippd");
+        assert_eq!(clean_repo("/home/x/proj"), "proj");
+        // Drive/fs roots and path-like junk are coerced to "unknown".
+        assert_eq!(clean_repo("D:\\"), "unknown");
+        assert_eq!(clean_repo("C:"), "unknown");
+        assert_eq!(clean_repo("/"), "unknown");
+        assert_eq!(clean_repo(""), "unknown");
     }
 
     #[test]

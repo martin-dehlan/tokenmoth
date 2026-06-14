@@ -1,0 +1,62 @@
+name: ci
+
+# Build + test gate for every push and PR. Complements the gitleaks secret scan.
+# fmt/clippy run as advisory (non-blocking) because the existing tree is not yet
+# rustfmt-clean; the hard gates are `cargo test` and the builds.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - name: Format (advisory)
+        run: cargo fmt --check
+        continue-on-error: true
+      - name: Clippy (advisory)
+        run: cargo clippy --all-targets
+        continue-on-error: true
+      - name: Test
+        run: cargo test --locked
+      - name: Build
+        run: cargo build --locked
+
+  frontend:
+    name: frontend (next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build

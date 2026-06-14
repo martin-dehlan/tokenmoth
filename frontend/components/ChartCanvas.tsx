@@ -48,6 +48,8 @@ export default function ChartCanvas({
   const [hover, setHover] = useState<number | null>(null);
   const [drawn, setDrawn] = useState(false);
   const reduceMotion = useRef(false);
+  // [#207] Recording slows the draw so viewers can follow it; prod stays snappy.
+  const slow = useRef(1);
 
   useLayoutEffect(() => {
     const el = wrapRef.current;
@@ -67,6 +69,7 @@ export default function ChartCanvas({
   const sig = `${xLabels.join("|")}·${max}·${series.map((s) => s.name).join()}`;
   useEffect(() => {
     reduceMotion.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    slow.current = document.documentElement.dataset.motion === "full" ? 1.7 : 1;
     if (reduceMotion.current) {
       setDrawn(true);
       return;
@@ -156,15 +159,17 @@ export default function ChartCanvas({
 
   const tipFlip = hover !== null && x(hover) + 12 + TIP_W > W;
   const animating = !reduceMotion.current;
+  const S = slow.current;
+  const ms = (n: number) => Math.round(n * S);
   const lineStyle = (si: number): React.CSSProperties =>
     !animating
       ? {}
       : series[si].dashed
-        ? { opacity: drawn ? 0.6 : 0, transition: "opacity 600ms ease 250ms" }
+        ? { opacity: drawn ? 0.6 : 0, transition: `opacity ${ms(600)}ms ease ${ms(250)}ms` }
         : {
             strokeDasharray: 1,
             strokeDashoffset: drawn ? 0 : 1,
-            transition: `stroke-dashoffset 800ms cubic-bezier(0.4, 0, 0.2, 1) ${si * 120}ms`,
+            transition: `stroke-dashoffset ${ms(800)}ms cubic-bezier(0.4, 0, 0.2, 1) ${ms(si * 120)}ms`,
           };
 
   return (
@@ -220,13 +225,13 @@ export default function ChartCanvas({
             d={areaPath}
             fill="url(#tm-area)"
             stroke="none"
-            style={animating ? { opacity: drawn ? 1 : 0, transition: "opacity 700ms ease 250ms" } : {}}
+            style={animating ? { opacity: drawn ? 1 : 0, transition: `opacity ${ms(700)}ms ease ${ms(250)}ms` } : {}}
           />
         )}
 
         {/* peak callout — skip when the window is entirely empty (no "peak 0") */}
         {main && n > 1 && peakValue > 0 && (
-          <g style={animating ? { opacity: drawn ? 1 : 0, transition: "opacity 400ms ease 600ms" } : {}}>
+          <g style={animating ? { opacity: drawn ? 1 : 0, transition: `opacity ${ms(400)}ms ease ${ms(600)}ms` } : {}}>
             <line
               x1={x(spikeI)}
               x2={x(spikeI)}
@@ -300,12 +305,12 @@ export default function ChartCanvas({
               fill={s.color}
               opacity={si === 0 ? 1 : 0.9}
               textAnchor={compact ? "end" : "start"}
-              style={animating ? { opacity: drawn ? (si === 0 ? 1 : 0.9) : 0, transition: "opacity 400ms ease 500ms" } : {}}
+              style={animating ? { opacity: drawn ? (si === 0 ? 1 : 0.9) : 0, transition: `opacity ${ms(400)}ms ease ${ms(500)}ms` } : {}}
             >
               {s.name.toUpperCase()}
             </text>
             {si === 0 && (
-              <g style={animating ? { opacity: drawn ? 1 : 0, transition: "opacity 300ms ease 750ms" } : {}}>
+              <g style={animating ? { opacity: drawn ? 1 : 0, transition: `opacity ${ms(300)}ms ease ${ms(750)}ms` } : {}}>
                 {/* soft halo behind the live endpoint dot */}
                 <circle cx={x(n - 1)} cy={y(s.values[n - 1] ?? 0)} r={8} fill={s.color} opacity={0.15} />
                 <circle cx={x(n - 1)} cy={y(s.values[n - 1] ?? 0)} r={4} fill={s.color} />

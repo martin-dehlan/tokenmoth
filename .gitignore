@@ -4,6 +4,9 @@ target/
 **/*.rs.bk
 *.pdb
 
+# Demo recording intermediates
+/recordings/
+
 # Env / secrets
 .env
 .env.local
@@ -28,5 +31,5 @@ yarn-error.log*
 # TS incremental build info
 *.tsbuildinfo
 
-# Demo recording intermediates
+# Demo recording intermediates (Milestone 10) — only docs/demo/ is committed
 /recordings/

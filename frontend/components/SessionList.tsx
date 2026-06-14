@@ -36,11 +36,17 @@ export default function SessionList({
   }, [sessions]);
 
   // Demo-only: drop one new session in so the arrival animation is on camera.
+  // The recorder fires a `tm-demo-arrival` event once it has panned the history
+  // into view, so the arrival is deterministic; a timeout is the fallback for
+  // manual viewing. Guarded so it only ever injects once.
+  const injected = useRef(false);
   useEffect(() => {
     if (!demoArrival) return;
     const base = sessions[0];
     if (!base) return;
-    const t = setTimeout(() => {
+    const inject = () => {
+      if (injected.current) return;
+      injected.current = true;
       const arrived: SessionUsage = {
         ...base,
         sessionId: "demo-arrival",
@@ -50,8 +56,13 @@ export default function SessionList({
       seen.current.add(arrived.sessionId);
       setNewIds(new Set([arrived.sessionId]));
       setRows((prev) => [arrived, ...prev.filter((r) => r.sessionId !== arrived.sessionId)]);
-    }, 2200);
-    return () => clearTimeout(t);
+    };
+    window.addEventListener("tm-demo-arrival", inject);
+    const t = setTimeout(inject, 4000);
+    return () => {
+      window.removeEventListener("tm-demo-arrival", inject);
+      clearTimeout(t);
+    };
   }, [demoArrival, sessions]);
 
   if (rows.length === 0) {

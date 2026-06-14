@@ -22,7 +22,8 @@
   --accent-fg: #ffffff;
   --accent-faint: rgba(26, 127, 100, 0.06);
   --accent-ring: rgba(26, 127, 100, 0.18);
-  --warn: #9a6200; /* amber */
+  --warn: #c0801c; /* amber — medium severity / caution */
+  --danger: #b5483a; /* muted brick-red — high severity / "cut this" */
   --info: #1a4f7f; /* navy */
   --copper: #cf6a1f; /* moth-body copper */
   --copper-soft: rgba(207, 106, 31, 0.1);
@@ -32,7 +33,7 @@
      teal / navy / amber / gray; .dark flips to brighter equivalents. */
   --chart-1: #1a7f64; /* teal */
   --chart-2: #1a4f7f; /* navy */
-  --chart-3: #9a6200; /* amber */
+  --chart-3: #c0801c; /* amber — cleaner gold, not muddy brown */
   --chart-4: #6b7280; /* gray */
   --chart-area: rgba(26, 127, 100, 0.05); /* fill under the main chart line */
 
@@ -67,6 +68,7 @@
   --accent-faint: rgba(52, 168, 136, 0.1);
   --accent-ring: rgba(52, 168, 136, 0.28);
   --warn: #d49a3a;
+  --danger: #e08070; /* brighter brick-red for dark */
   --info: #6aa3da;
   --copper: #d9803a;
   --copper-soft: rgba(217, 128, 58, 0.14);
@@ -240,12 +242,12 @@ body {
   }
 }
 
-/* Bar grow-in on first scroll into view (#204). A container marked
-   [data-reveal] (rendered by <RevealOnView>) grows the .track bars — or a
-   single [data-bar] element — inside it from 0 to full width, staggered by
-   row. Unlayered so it isn't reordered against Tailwind's utility layer.
-   Bars sit at final width until data-reveal flips to "in", so there's no
-   flash before hydration and reduced motion (below) collapses it to no-op. */
+/* Bar grow-in (#204). A container marked [data-reveal] (rendered by
+   <RevealOnView>) fills the .track bars — or a single [data-bar] element —
+   from 0 to full width, staggered by row, every time it's revealed. Bars
+   start *empty* (scaleX 0) and fill on reveal, so the fill is always seen as a
+   fill rather than a snap from full. Unlayered so it isn't reordered against
+   Tailwind's utility layer. Reduced motion (below) reveals immediately at full. */
 @keyframes bar-grow-x {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
@@ -254,6 +256,14 @@ body {
 [data-reveal] .track > i,
 [data-reveal] [data-bar] {
   transform-origin: left center;
+}
+
+/* Primed-but-not-yet-revealed: hold empty so the reveal is a clean fill.
+   The no-IntersectionObserver / reduced-motion fallbacks flip to "in"
+   immediately, so bars are never stuck empty. */
+[data-reveal="out"] .track > i,
+[data-reveal="out"] [data-bar] {
+  transform: scaleX(0);
 }
 
 /* Stagger: each direct child gets an index var the bars inside inherit. */
@@ -269,9 +279,10 @@ body {
 [data-reveal="in"] > * .track > i,
 [data-reveal="in"] > *[data-bar],
 [data-reveal="in"][data-bar] {
-  animation: bar-grow-x var(--motion) var(--ease-out) both;
+  animation: bar-grow-x var(--motion-slow) var(--ease-out) both;
   animation-delay: calc(var(--motion-stagger) * var(--d, 0));
 }
+
 
 /* List rows: fade + slide in on first view, staggered (#205). Applied to a
    [data-reveal].list-enter container (e.g. SessionList). Rows render normally
@@ -286,21 +297,62 @@ body {
 }
 
 /* New-item arrival: a row flagged [data-new] (an id not seen before) slides in
-   from the top with a brief highlight that settles to transparent. Declared
-   after row-enter so it wins for the same element. (#205) */
+   from the top with a gentle pop, and a highlight (tint + left accent bar) that
+   lingers then settles — so a new session clearly reads as just-arrived. (#205) */
 @keyframes row-arrive {
-  0% { opacity: 0; transform: translateY(-12px); }
-  60% { opacity: 1; }
+  0% { opacity: 0; transform: translateY(-18px) scale(0.99); }
+  55% { opacity: 1; transform: translateY(0) scale(1.012); }
   100% { transform: none; }
 }
-@keyframes row-flash {
-  from { background-color: var(--accent-faint); }
-  to { background-color: transparent; }
+@keyframes row-highlight {
+  0%, 55% {
+    background-color: var(--accent-faint);
+    box-shadow: inset 3px 0 0 0 var(--accent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 3px 0 0 0 transparent;
+  }
 }
 .list-enter > [data-new] {
+  border-radius: 6px;
   animation:
-    row-arrive var(--motion) var(--ease-out) both,
-    row-flash var(--motion-slow) var(--ease-out) both;
+    row-arrive 560ms var(--ease-out) both,
+    row-highlight 1900ms var(--ease-out) both;
+}
+/* Recording: slower and held longer so the arrival is unmistakable on camera. */
+:root[data-motion="full"] .list-enter > [data-new] {
+  animation:
+    row-arrive 950ms var(--ease-out) both,
+    row-highlight 3000ms var(--ease-out) both;
+}
+
+/* MCP server chips fade+pop in (staggered) when revealed; the dead (0-call)
+   chip pulses once to draw the eye to what's safe to drop. (#205) */
+@keyframes chip-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chip-alert {
+  0%, 20% { box-shadow: 0 0 0 0 rgba(181, 72, 58, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(181, 72, 58, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(181, 72, 58, 0); }
+}
+[data-reveal="in"].mcp-chips > * {
+  animation: chip-in var(--motion) var(--ease-out) both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0));
+}
+[data-reveal="in"].mcp-chips > [data-dead] {
+  animation:
+    chip-in var(--motion) var(--ease-out) both,
+    chip-alert 1400ms var(--ease-out) 2 both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0)), 600ms;
+}
+:root[data-motion="full"] [data-reveal="in"].mcp-chips > [data-dead] {
+  animation:
+    chip-in var(--motion) var(--ease-out) both,
+    chip-alert 1500ms var(--ease-out) 4 both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0)), 700ms;
 }
 
 /* Page transition (#206): app/template.tsx remounts per navigation, so this
@@ -318,10 +370,25 @@ body {
 /* Demo intensity hook (#207): the recording sets data-motion="full" on <html>
    to make transitions read clearly on camera; prod stays calm by default. */
 :root[data-motion="full"] {
-  --motion-stagger: 70ms;
+  /* Everything keyed off these vars (row enter, chip-in, page fade, …) slows
+     for the camera so viewers can follow each animation. Prod keeps the base
+     values above. */
+  --motion-fast: 240ms;
+  --motion: 380ms;
+  --motion-slow: 660ms;
+  --motion-stagger: 95ms;
 }
 :root[data-motion="full"] .page-enter {
   animation-duration: var(--motion-slow);
+}
+/* Bars: for the camera only, a slower smooth fill + a short start delay so the
+   empty->full sweep is always caught, plus a stronger row stagger. Prod keeps
+   the quick, immediate fill above. */
+:root[data-motion="full"] [data-reveal="in"] > * .track > i,
+:root[data-motion="full"] [data-reveal="in"] > *[data-bar],
+:root[data-motion="full"] [data-reveal="in"][data-bar] {
+  animation-duration: 1050ms;
+  animation-delay: calc(260ms + var(--motion-stagger) * var(--d, 0));
 }
 
 /* Accessibility: honor the OS "reduce motion" setting globally. Any motion
