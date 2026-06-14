@@ -45,7 +45,7 @@ tokenmoth report  ──reads──► transcript JSONL  (sums message.usage)
 tokenmoth-api (Axum)  ──upsert (UNIQUE session_id)──►  Postgres
         ▲
         │  GET (dashboard)
-Next.js fuse-box dashboard
+Next.js dashboard
 ```
 
 ## Privacy — what leaves your machine
@@ -187,8 +187,11 @@ Light, editorial "notebook" surface (`--canvas #fbfbfa`) with near-black ink
 
 ## Hosting
 
-Not Vercel. Backend → Fly.io / Railway / self-host (single static Rust binary +
-Postgres). Frontend → any Node host or static export behind your own CDN.
+Self-host anywhere — nothing here is platform-specific:
+
+- **API** — a single static Rust binary + Postgres, so any container or VM host works
+  (Fly.io, Railway, a VPS, or AWS as shown below).
+- **Frontend** — a standard Next.js app: any Node host, or a static export behind your CDN.
 
 ## Status
 
@@ -210,7 +213,7 @@ git config core.hooksPath .githooks   # enable the pre-commit hook in this clone
 
 ## Deploy (AWS Lambda + Supabase) — scale-to-zero
 
-Hosted on **AWS** (not Fly, not Vercel): Rust API on **Lambda** (arm64, behind a public
+Hosted on **AWS**: Rust API on **Lambda** (arm64, behind a public
 **API Gateway HTTP API**), Postgres + Auth on **Supabase**, frontend on **AWS Amplify**.
 Idle cost ≈ €0 (pay-per-request). All resources tagged `Project=tokenmoth`.
 
@@ -233,9 +236,10 @@ tokenmoth setup --key tm_user_123 --api-url https://<api-id>.execute-api.eu-cent
 ```
 
 Gotchas (codified in `scripts/deploy-lambda.sh`): use the Supabase **session pooler
-(:5432)** — the transaction pooler (6543) breaks sqlx prepared statements; public Lambda
-**Function URLs** are org-blocked, so we front with **API Gateway**; the Lambda entrypoint
-is feature-gated (`--features lambda`), local/compose stays `axum::serve`.
+(:5432)** — the transaction pooler (6543) breaks sqlx prepared statements; we front the
+Lambda with **API Gateway** (Function URLs can be disabled by org SCPs and give a less
+stable endpoint); the Lambda entrypoint is feature-gated (`--features lambda`),
+local/compose stays `axum::serve`.
 
 Secrets live **only** in AWS Secrets Manager (`tokenmoth/prod`), operator-set — never in
 the repo. **Project isolation:** everything is tagged `Project=tokenmoth`, so a
