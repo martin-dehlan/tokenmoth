@@ -2,6 +2,7 @@ import Link from "next/link";
 import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import SessionList from "@/components/SessionList";
+import RevealOnView from "@/components/RevealOnView";
 import { fetchRepoSeries, fetchSessions, fmtTokens, fmtChartLabel, padSeriesToWindow, distinctDays } from "@/lib/data";
 import { PAGE_MAIN, WINDOWS } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
@@ -14,9 +15,12 @@ export default async function RepoDetail({
   searchParams,
 }: {
   params: { name: string };
-  searchParams: { since?: string };
+  searchParams: { since?: string; demo?: string };
 }) {
   const name = decodeURIComponent(params.name);
+  // Demo-only: ?demo=arrival makes the session list stage one new-row arrival
+  // for the product tour. No effect in normal use.
+  const demoArrival = searchParams.demo === "arrival";
   const since = (WINDOWS as readonly string[]).includes(searchParams.since ?? "")
     ? searchParams.since!
     : "30d";
@@ -116,7 +120,7 @@ export default async function RepoDetail({
           {/* BREAKDOWN */}
           <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
             <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">token breakdown</h2>
-            <div className="flex flex-col gap-3">
+            <RevealOnView className="flex flex-col gap-3">
               {breakdown.map((b) => (
                 <div key={b.label} className="grid grid-cols-[6rem_1fr_4rem] items-center gap-4">
                   <span className="text-[11px] text-muted">{b.label}</span>
@@ -128,7 +132,7 @@ export default async function RepoDetail({
                   </span>
                 </div>
               ))}
-            </div>
+            </RevealOnView>
           </section>
 
           {/* SESSION HISTORY */}
@@ -136,7 +140,7 @@ export default async function RepoDetail({
             <h2 className="text-[10px] uppercase tracking-label text-muted mb-4">
               session history
             </h2>
-            <SessionList sessions={sessions} />
+            <SessionList sessions={sessions} demoArrival={demoArrival} />
           </section>
         </div>
 
