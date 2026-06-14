@@ -1,9 +1,15 @@
 # 🦋 TokenMoth
 
-Track, aggregate and visualize **Claude Code** token usage & cost — per Git repo, in
-real time. A premium micro-SaaS: tiny Rust ingestion API, a zero-setup Rust CLI that
-installs a Claude Code hook, and a neo-brutalist Next.js dashboard styled like an
-analog breaker fuse box (*Sicherungskasten*).
+**See where your Claude Code tokens actually go** — per Git repo, down to the single
+session. A tiny Rust ingestion API, a zero-setup CLI that installs a Claude Code hook,
+and a clean light/dark Next.js dashboard.
+
+<p align="center">
+  <a href="https://tokenmoth.com"><img src="https://img.shields.io/badge/live-tokenmoth.com-1a7f64" alt="Live"></a>
+  <img src="https://img.shields.io/badge/license-Apache--2.0-1a7f64.svg" alt="License: Apache 2.0">
+  <img src="https://img.shields.io/npm/v/tokenmoth?color=cf6a1f&label=npm" alt="npm version">
+  <img src="https://img.shields.io/badge/Claude%20Code-SessionEnd%20hook-cf6a1f" alt="Claude Code hook">
+</p>
 
 <p align="center">
   <a href="./docs/demo/tokenmoth-demo.mp4">
@@ -16,6 +22,15 @@ analog breaker fuse box (*Sicherungskasten*).
 > ⚠️ Read [`AUDIT.md`](./AUDIT.md) first. Claude Code hook payloads do **not** carry
 > token counts — usage is parsed from the session transcript. The architecture here is
 > the corrected design, not the naive "forward the hook payload" one.
+
+## Why
+
+- **Per-repo attribution** — usage and cost split by Git project, not one global number.
+- **Optimizer** — which MCP servers load every session vs actually get *called*; drop the dead ones.
+- **Per-session anatomy** — input / output / cache, per model, per plugin, per run.
+- **Hook & plugin cost** — what each injection quietly costs you per month.
+- **Privacy-first** — transcripts parsed locally; only an aggregated, whitelisted summary leaves your machine.
+- **Self-hostable** — point the CLI at your own API; your data never leaves your stack.
 
 ## How it works
 
@@ -106,7 +121,7 @@ psql "$DATABASE_URL" -f seed.sql   # creates dev key tm_user_123
 ## CLI — install the hook
 
 All paths ship the same prebuilt `tokenmoth` binary — **no Rust toolchain, no
-compile** (repo stays private; only the release artifacts are public). Pick one:
+compile** needed to use it. Pick one:
 
 **npm** (every Claude Code user already has Node — lowest friction):
 
@@ -166,9 +181,9 @@ to switch to **live** mode (`● LIVE` indicator).
 
 ### Style
 
-PostHog-vibe neo-brutalism: deep charcoal `#0d0d0d`, JetBrains Mono, `border-4
-border-black`, zero rounding, zero shadows. Accents: PostHog yellow `#fccd04`, toxic
-green `#00ff66`.
+Light, editorial "notebook" surface (`--canvas #fbfbfa`) with near-black ink
+(`#1f2328`), a teal accent used sparingly (`#1a7f64`) and a copper moth-body highlight
+(`#cf6a1f`). JetBrains Mono for figures. Full light **and** dark theme.
 
 ## Hosting
 
@@ -177,7 +192,8 @@ Postgres). Frontend → any Node host or static export behind your own CDN.
 
 ## Status
 
-MVP scaffold. See the GitHub milestones & issues for the roadmap.
+Live at [tokenmoth.com](https://tokenmoth.com). Open source under Apache-2.0.
+See the GitHub issues & milestones for the roadmap — contributions welcome.
 
 ## Security — secret scanning
 
