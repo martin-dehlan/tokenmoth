@@ -22,7 +22,8 @@
   --accent-fg: #ffffff;
   --accent-faint: rgba(26, 127, 100, 0.06);
   --accent-ring: rgba(26, 127, 100, 0.18);
-  --warn: #c0801c; /* amber — cleaner, less muddy than the old #9a6200 */
+  --warn: #c0801c; /* amber — medium severity / caution */
+  --danger: #b5483a; /* muted brick-red — high severity / "cut this" */
   --info: #1a4f7f; /* navy */
   --copper: #cf6a1f; /* moth-body copper */
   --copper-soft: rgba(207, 106, 31, 0.1);
@@ -67,6 +68,7 @@
   --accent-faint: rgba(52, 168, 136, 0.1);
   --accent-ring: rgba(52, 168, 136, 0.28);
   --warn: #d49a3a;
+  --danger: #e08070; /* brighter brick-red for dark */
   --info: #6aa3da;
   --copper: #d9803a;
   --copper-soft: rgba(217, 128, 58, 0.14);
@@ -332,9 +334,9 @@ body {
   to { opacity: 1; transform: none; }
 }
 @keyframes chip-alert {
-  0%, 25% { box-shadow: 0 0 0 0 rgba(192, 128, 28, 0); }
-  50% { box-shadow: 0 0 0 4px rgba(192, 128, 28, 0.32); }
-  100% { box-shadow: 0 0 0 0 rgba(192, 128, 28, 0); }
+  0%, 20% { box-shadow: 0 0 0 0 rgba(181, 72, 58, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(181, 72, 58, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(181, 72, 58, 0); }
 }
 [data-reveal="in"].mcp-chips > * {
   animation: chip-in var(--motion) var(--ease-out) both;
@@ -343,14 +345,14 @@ body {
 [data-reveal="in"].mcp-chips > [data-dead] {
   animation:
     chip-in var(--motion) var(--ease-out) both,
-    chip-alert 2200ms var(--ease-out) 1 both;
-  animation-delay: calc(var(--motion-stagger) * var(--d, 0)), 700ms;
+    chip-alert 1400ms var(--ease-out) 2 both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0)), 600ms;
 }
 :root[data-motion="full"] [data-reveal="in"].mcp-chips > [data-dead] {
   animation:
     chip-in var(--motion) var(--ease-out) both,
-    chip-alert 2600ms var(--ease-out) 2 both;
-  animation-delay: calc(var(--motion-stagger) * var(--d, 0)), 800ms;
+    chip-alert 1500ms var(--ease-out) 4 both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0)), 700ms;
 }
 
 /* Page transition (#206): app/template.tsx remounts per navigation, so this

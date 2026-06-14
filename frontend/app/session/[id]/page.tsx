@@ -133,7 +133,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
 
           {/* MCP SERVERS — loaded vs actually called (#153) */}
           {mcpNames.length > 0 && (
-            <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
+            <section id="mcp" className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="text-[10px] uppercase tracking-label text-muted">
                   MCP servers active
@@ -152,7 +152,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
                       data-dead={dead ? "" : undefined}
                       className={`text-[11px] font-mono border rounded-btn px-2 py-1 ${
                         dead
-                          ? "bg-warn/10 text-warn border-warn/60 font-medium"
+                          ? "bg-danger/10 text-danger border-danger/60 font-medium"
                           : "text-muted border-hair"
                       }`}
                       title={dead ? "loaded but never called this session — drop it" : undefined}

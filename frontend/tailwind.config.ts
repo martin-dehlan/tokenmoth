@@ -22,6 +22,7 @@ const config: Config = {
           ring: "var(--accent-ring)",
         },
         warn: "var(--warn)",
+        danger: "var(--danger)",
         info: "var(--info)",
         copper: {
           DEFAULT: "var(--copper)",
