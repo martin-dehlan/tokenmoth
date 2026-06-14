@@ -33,3 +33,9 @@ yarn-error.log*
 
 # Demo recording intermediates (Milestone 10) — only docs/demo/ is committed
 /recordings/
+
+# LinkedIn / marketing scratch (local only — keep out of the public repo)
+/docs/demo/carousel_*.png
+/docs/demo/tokenmoth-carousel.pdf
+/docs/demo/linkedin-post.txt
+/docs/demo/build_carousel.py
