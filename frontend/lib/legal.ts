@@ -42,16 +42,17 @@ export const subprocessors: Subprocessor[] = [
   {
     name: "Supabase",
     purpose: "Authentifizierung & Datenbank (Account, Nutzungsdaten)",
-    region: "EU (Frankfurt, eu-central-1)",
+    region: "EU (Irland, eu-west-1)",
     transfer: "EU-Region — kein Drittlandtransfer",
     dpa: "AVV nach Art. 28 DSGVO (Supabase DPA)",
   },
   {
-    name: "Vercel",
-    purpose: "Hosting & Auslieferung der Web-App, Server-Logs",
-    region: "USA",
-    transfer: "SCC / EU-US Data Privacy Framework",
-    dpa: "AVV nach Art. 28 DSGVO (Vercel DPA)",
+    name: "Amazon Web Services (AWS)",
+    purpose:
+      "Hosting der Web-App (Amplify) und API (App Runner/Lambda), Server-Logs, Software-Downloads (S3/CloudFront)",
+    region: "EU (Frankfurt, eu-central-1)",
+    transfer: "Verarbeitung in EU-Region; SCC (AWS DPA)",
+    dpa: "AVV nach Art. 28 DSGVO (AWS DPA)",
   },
   {
     name: "PostHog",
