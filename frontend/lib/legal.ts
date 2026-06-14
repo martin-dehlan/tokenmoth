@@ -3,7 +3,7 @@
 // with the real operator data BEFORE going live (tracked in #111 / #118).
 //
 // ⚠️ The legal page texts that consume this file are DRAFTS. Nothing here is a
-// substitute for advice from a lawyer — see docs/legal/anwalt-briefing.md.
+// substitute for advice from a lawyer.
 
 export const PLACEHOLDER = "TODO_AUSFÜLLEN";
 
@@ -42,7 +42,6 @@ export type Subprocessor = {
   dpa: string;
 };
 
-// Keep in sync with docs/legal/subprozessoren.md.
 export const subprocessors: Subprocessor[] = [
   {
     name: "Supabase",

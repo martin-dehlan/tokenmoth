@@ -1641,8 +1641,8 @@ mod tests {
 
     #[test]
     fn repo_basename_trims_trailing_slash() {
-        assert_eq!(repo_from_path("/a/b/sample/"), "sample");
-        assert_eq!(repo_from_path("/a/b/sample"), "sample");
+        assert_eq!(repo_from_path("/a/b/myrepo/"), "myrepo");
+        assert_eq!(repo_from_path("/a/b/myrepo"), "myrepo");
     }
 
     #[test]
@@ -1910,11 +1910,11 @@ mod tests {
         // basename of the most-frequent transcript cwd (#109 fallback path).
         let no_files = HashMap::new();
         let mut counts = HashMap::new();
-        counts.insert("/no/such/sample".to_string(), 50);
+        counts.insert("/no/such/myrepo".to_string(), 50);
         counts.insert("/no/such/home".to_string(), 3);
-        assert_eq!(resolve_repo(None, &counts, &no_files), "sample");
+        assert_eq!(resolve_repo(None, &counts, &no_files), "myrepo");
         // A non-repo hook cwd doesn't win over the dominant transcript cwd.
-        assert_eq!(resolve_repo(Some("/no/such/home"), &counts, &no_files), "sample");
+        assert_eq!(resolve_repo(Some("/no/such/home"), &counts, &no_files), "myrepo");
     }
 
     #[test]

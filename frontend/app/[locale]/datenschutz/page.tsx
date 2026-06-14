@@ -112,7 +112,7 @@ function En() {
       <SubprocessorTable locale="en" />
       <p className="text-warn text-[12px]">
         Note: verify regions, third-country transfer mechanisms (SCC / EU-US DPF) and DPAs before
-        go-live (see docs/legal/subprozessoren.md).
+        go-live.
       </p>
 
       <h2>5. Retention</h2>
@@ -213,7 +213,7 @@ function De() {
       <SubprocessorTable locale="de" />
       <p className="text-warn text-[12px]">
         Hinweis: Regionen, Drittlandtransfer-Mechanismen (SCC / EU-US DPF) und AVV-Abschlüsse vor
-        Go-Live verifizieren (siehe docs/legal/subprozessoren.md).
+        Go-Live verifizieren.
       </p>
 
       <h2>5. Speicherdauer</h2>

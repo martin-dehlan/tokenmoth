@@ -22,7 +22,9 @@ env:
   # OIDC role scoped to s3:PutObject for this repo. NOTE: the role policy must
   # allow BOTH tokenmoth-dist/tokenmoth-*.tar.gz* (latest keys) AND
   # tokenmoth-dist/releases/* (versioned keys).
-  ROLE_ARN: arn:aws:iam::<account-id>:role/tokenmoth-ci-s3-publish
+  # Set as a repo variable (Settings > Secrets and variables > Actions > Variables):
+  #   AWS_ROLE_ARN = arn:aws:iam::<account-id>:role/tokenmoth-ci-s3-publish
+  ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
 
 jobs:
   build:
