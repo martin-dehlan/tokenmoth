@@ -323,8 +323,8 @@ body {
 /* Recording: slower and held longer so the arrival is unmistakable on camera. */
 :root[data-motion="full"] .list-enter > [data-new] {
   animation:
-    row-arrive 760ms var(--ease-out) both,
-    row-highlight 2800ms var(--ease-out) both;
+    row-arrive 950ms var(--ease-out) both,
+    row-highlight 3000ms var(--ease-out) both;
 }
 
 /* MCP server chips fade+pop in (staggered) when revealed; the dead (0-call)
@@ -370,7 +370,13 @@ body {
 /* Demo intensity hook (#207): the recording sets data-motion="full" on <html>
    to make transitions read clearly on camera; prod stays calm by default. */
 :root[data-motion="full"] {
-  --motion-stagger: 90ms;
+  /* Everything keyed off these vars (row enter, chip-in, page fade, …) slows
+     for the camera so viewers can follow each animation. Prod keeps the base
+     values above. */
+  --motion-fast: 240ms;
+  --motion: 380ms;
+  --motion-slow: 660ms;
+  --motion-stagger: 95ms;
 }
 :root[data-motion="full"] .page-enter {
   animation-duration: var(--motion-slow);
@@ -381,8 +387,8 @@ body {
 :root[data-motion="full"] [data-reveal="in"] > * .track > i,
 :root[data-motion="full"] [data-reveal="in"] > *[data-bar],
 :root[data-motion="full"] [data-reveal="in"][data-bar] {
-  animation-duration: 720ms;
-  animation-delay: calc(200ms + var(--motion-stagger) * var(--d, 0));
+  animation-duration: 1050ms;
+  animation-delay: calc(260ms + var(--motion-stagger) * var(--d, 0));
 }
 
 /* Accessibility: honor the OS "reduce motion" setting globally. Any motion
