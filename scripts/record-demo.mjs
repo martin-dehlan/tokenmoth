@@ -146,31 +146,28 @@ async function runTour(page) {
   await panToBottom(page);
   await sleep(SECTION_PAUSE);
 
-  // 2) Privacy / "what leaves your machine" — trust beat.
-  await goto(page, BASE_URL + "/data");
-  await sleep(SECTION_PAUSE);
-  await panToBottom(page);
-  await sleep(500);
-
-  // 3) Repo detail — pan to the session history; the staged arrival (~3s after
-  // mount) lands as we reach it.
+  // 2) Repo detail — pan to the session history, then fire the staged arrival
+  // (once it's in view) and hold so the highlighted new row plays fully.
   await goto(page, BASE_URL + "/repo/aurora-api?demo=arrival");
   await page.waitForSelector("main", { timeout: 30_000 });
   await sleep(SECTION_PAUSE);
   await panToBottom(page);
-  await sleep(2200);
+  await sleep(700);
+  await page.evaluate(() => window.dispatchEvent(new Event("tm-demo-arrival")));
+  await sleep(3200);
 
-  // 4) Drill into a session — pan the cost-anatomy payoff.
+  // 3) Drill into a session — pan the cost-anatomy payoff.
   await goto(page, BASE_URL + "/session/demo-aurora-api-2");
   await page.waitForSelector("main", { timeout: 30_000 });
   await sleep(SECTION_PAUSE);
   await panToBottom(page);
   await sleep(SECTION_PAUSE);
 
-  // 5) End back on the headline number.
-  await goto(page, BASE_URL + "/");
-  await page.waitForSelector("#hero");
-  await sleep(SECTION_PAUSE + 300);
+  // 4) Close on "what leaves your machine" — the privacy/trust beat, last.
+  await goto(page, BASE_URL + "/data");
+  await sleep(SECTION_PAUSE);
+  await panToBottom(page);
+  await sleep(SECTION_PAUSE + 700);
 }
 
 // ---- main ------------------------------------------------------------------
