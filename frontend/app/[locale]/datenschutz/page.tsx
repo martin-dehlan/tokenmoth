@@ -119,7 +119,9 @@ function En() {
       <p>
         We store account and usage data for as long as your account exists. After account deletion the
         associated data is deleted; statutory retention obligations (e.g. tax law for invoices) remain
-        unaffected. Specific retention periods: <span className="text-warn">[{PLACEHOLDER}]</span>.
+        unaffected. Specific retention periods: usage data is kept until you delete your account;
+        server logs are deleted after 14 days; invoice data is retained for 10 years under statutory
+        tax law (§ 147 AO, § 14b UStG).
       </p>
 
       <h2>6. Your rights</h2>
@@ -220,8 +222,8 @@ function De() {
       <p>
         Account- und Nutzungsdaten speichern wir, solange dein Konto besteht. Nach Löschung des
         Kontos werden die zugehörigen Daten gelöscht; gesetzliche Aufbewahrungsfristen (z. B.
-        steuerrechtlich für Rechnungen) bleiben unberührt. Konkrete Löschfristen:{" "}
-        <span className="text-warn">[{PLACEHOLDER}]</span>.
+        steuerrechtlich für Rechnungen) bleiben unberührt. Konkrete Löschfristen: Nutzungsdaten bis
+        zur Kontolöschung, Server-Logs nach 14 Tagen, Rechnungsdaten 10 Jahre (§ 147 AO, § 14b UStG).
       </p>
 
       <h2>6. Deine Rechte</h2>

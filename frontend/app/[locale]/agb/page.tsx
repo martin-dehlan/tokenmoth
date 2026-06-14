@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import LegalShell from "@/components/LegalShell";
-import { operator, site, PLACEHOLDER } from "@/lib/legal";
+import { operator, site } from "@/lib/legal";
 import { locales, isLocale, type Locale } from "@/lib/i18n";
 
 export const dynamicParams = false;
@@ -17,8 +17,6 @@ export function generateMetadata({ params }: { params: { locale: string } }): Me
 }
 
 function Name() {
-  if (operator.legalName === PLACEHOLDER)
-    return <span className="text-warn font-mono text-[12px]">[{PLACEHOLDER}]</span>;
   return <>{operator.legalName}</>;
 }
 

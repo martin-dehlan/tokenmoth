@@ -46,15 +46,18 @@ function En() {
       <h2>Contact</h2>
       <p>
         Email: <a href={`mailto:${operator.email}`}>{operator.email}</a>
-        <br />
-        Phone: <Field value={operator.phone} />
+        {operator.phone ? (
+          <>
+            <br />
+            Phone: {operator.phone}
+          </>
+        ) : null}
       </p>
       <h2>VAT</h2>
       <p>
         {operator.kleinunternehmer ? (
           <>
-            Pursuant to § 19 German VAT Act (UStG, small-business rule) no VAT is charged or shown.{" "}
-            <span className="text-warn">Confirm status before go-live.</span>
+            Pursuant to § 19 German VAT Act (UStG, small-business rule) no VAT is charged or shown.
           </>
         ) : (
           <>
@@ -87,15 +90,19 @@ function De() {
       <h2>Kontakt</h2>
       <p>
         E-Mail: <a href={`mailto:${operator.email}`}>{operator.email}</a>
-        <br />
-        Telefon: <Field value={operator.phone} />
+        {operator.phone ? (
+          <>
+            <br />
+            Telefon: {operator.phone}
+          </>
+        ) : null}
       </p>
       <h2>Umsatzsteuer</h2>
       <p>
         {operator.kleinunternehmer ? (
           <>
             Gemäß § 19 UStG wird keine Umsatzsteuer berechnet und daher nicht ausgewiesen
-            (Kleinunternehmerregelung). <span className="text-warn">Status vor Go-Live bestätigen.</span>
+            (Kleinunternehmerregelung).
           </>
         ) : (
           <>

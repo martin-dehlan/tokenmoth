@@ -1,6 +1,7 @@
 // Central legal/compliance config — single source of truth for Impressum,
-// Datenschutzerklärung and the subprocessor list. Fill the TODO_* placeholders
-// with the real operator data BEFORE going live (tracked in #111 / #118).
+// Datenschutzerklärung and the subprocessor list. Operator data is filled in;
+// remaining `text-warn` notes on the legal pages flag wording a lawyer should
+// review (subprocessor DPAs, jurisdiction clause; tracked in #111 / #115 / #118).
 //
 // ⚠️ The legal page texts that consume this file are DRAFTS. Nothing here is a
 // substitute for advice from a lawyer.
@@ -9,16 +10,16 @@ export const PLACEHOLDER = "TODO_AUSFÜLLEN";
 
 /** Operator ("Verantwortlicher" / §5 DDG). */
 export const operator = {
-  legalName: PLACEHOLDER, // e.g. "Martin Dehlan"
+  legalName: "Martin Dehlan",
   /** Rechtsform: Einzelunternehmer / GbR / UG (haftungsbeschränkt) … */
-  legalForm: "Einzelunternehmer (geplant)",
-  street: PLACEHOLDER, // ladungsfähige Anschrift, kein Postfach
-  postalCity: PLACEHOLDER, // "12345 Musterstadt"
+  legalForm: "Einzelunternehmer",
+  street: "Am Breiten Luch 46", // ladungsfähige Anschrift, kein Postfach
+  postalCity: "13053 Berlin",
   country: "Deutschland",
-  email: "legal@tokenmoth.com", // TODO: einrichten/bestätigen
-  phone: PLACEHOLDER, // zweiter schneller Kontaktweg
+  email: "legal@tokenmoth.com", // forwards to operator inbox
+  phone: "", // none — fast contact via e-mail (+ contact form); see note in #118
   /** USt-IdNr. falls vorhanden, sonst Kleinunternehmer-Hinweis (§19 UStG). */
-  vatId: PLACEHOLDER,
+  vatId: "", // none — Kleinunternehmer §19 UStG
   kleinunternehmer: true,
 } as const;
 
@@ -29,7 +30,7 @@ export const site = {
 } as const;
 
 /** Last substantive edit of the legal texts (manually bumped). */
-export const lastUpdated = "2026-06-10";
+export const lastUpdated = "2026-06-14";
 
 export type Subprocessor = {
   name: string;
