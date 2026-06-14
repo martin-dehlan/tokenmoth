@@ -22,7 +22,7 @@
   --accent-fg: #ffffff;
   --accent-faint: rgba(26, 127, 100, 0.06);
   --accent-ring: rgba(26, 127, 100, 0.18);
-  --warn: #9a6200; /* amber */
+  --warn: #c0801c; /* amber — cleaner, less muddy than the old #9a6200 */
   --info: #1a4f7f; /* navy */
   --copper: #cf6a1f; /* moth-body copper */
   --copper-soft: rgba(207, 106, 31, 0.1);
@@ -32,7 +32,7 @@
      teal / navy / amber / gray; .dark flips to brighter equivalents. */
   --chart-1: #1a7f64; /* teal */
   --chart-2: #1a4f7f; /* navy */
-  --chart-3: #9a6200; /* amber */
+  --chart-3: #c0801c; /* amber — cleaner gold, not muddy brown */
   --chart-4: #6b7280; /* gray */
   --chart-area: rgba(26, 127, 100, 0.05); /* fill under the main chart line */
 
@@ -281,25 +281,6 @@ body {
   animation-delay: calc(var(--motion-stagger) * var(--d, 0));
 }
 
-/* Cost-anatomy per-call bars (the SVG growth chart) grow up from the baseline,
-   staggered left-to-right, when revealed. Each rect's delay is set inline. */
-@keyframes ca-grow {
-  from { transform: scaleY(0); }
-  to { transform: scaleY(1); }
-}
-.ca-bar {
-  transform-box: fill-box;
-  transform-origin: bottom;
-}
-[data-reveal="out"] .ca-bar {
-  transform: scaleY(0);
-}
-[data-reveal="in"] .ca-bar {
-  animation: ca-grow var(--motion-slow) var(--ease-out) both;
-}
-:root[data-motion="full"] [data-reveal="in"] .ca-bar {
-  animation-duration: 680ms;
-}
 
 /* List rows: fade + slide in on first view, staggered (#205). Applied to a
    [data-reveal].list-enter container (e.g. SessionList). Rows render normally
@@ -342,6 +323,34 @@ body {
   animation:
     row-arrive 760ms var(--ease-out) both,
     row-highlight 2800ms var(--ease-out) both;
+}
+
+/* MCP server chips fade+pop in (staggered) when revealed; the dead (0-call)
+   chip pulses once to draw the eye to what's safe to drop. (#205) */
+@keyframes chip-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chip-alert {
+  0%, 25% { box-shadow: 0 0 0 0 rgba(192, 128, 28, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(192, 128, 28, 0.32); }
+  100% { box-shadow: 0 0 0 0 rgba(192, 128, 28, 0); }
+}
+[data-reveal="in"].mcp-chips > * {
+  animation: chip-in var(--motion) var(--ease-out) both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0));
+}
+[data-reveal="in"].mcp-chips > [data-dead] {
+  animation:
+    chip-in var(--motion) var(--ease-out) both,
+    chip-alert 2200ms var(--ease-out) 1 both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0)), 700ms;
+}
+:root[data-motion="full"] [data-reveal="in"].mcp-chips > [data-dead] {
+  animation:
+    chip-in var(--motion) var(--ease-out) both,
+    chip-alert 2600ms var(--ease-out) 2 both;
+  animation-delay: calc(var(--motion-stagger) * var(--d, 0)), 800ms;
 }
 
 /* Page transition (#206): app/template.tsx remounts per navigation, so this
