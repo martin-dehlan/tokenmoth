@@ -297,11 +297,14 @@ async fn ingest(
         return Err((StatusCode::BAD_REQUEST, "token counts must be non-negative".to_string()));
     }
 
+    // Sanitize the client-provided repo (defense in depth, #217): coerce paths
+    // and drive/fs roots to "unknown" instead of storing them as repo names.
     let repo = t
         .repo
         .clone()
         .filter(|r| !r.is_empty())
-        .unwrap_or_else(|| repo_from_path(&t.project_path));
+        .map(|r| clean_repo(&r))
+        .unwrap_or_else(|| clean_repo(&t.project_path));
 
     // Idempotent per session_id (audit finding 5): re-fired SessionEnd updates
     // the row instead of double-counting cost.
@@ -2111,13 +2114,42 @@ fn bearer(h: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Last path segment, separator-agnostic (POSIX `/` and Windows `\`). A bare
+/// drive root like `D:\` reduces to `D:`, which `clean_repo` then rejects.
 fn repo_from_path(p: &str) -> String {
-    p.trim_end_matches('/')
-        .rsplit('/')
+    p.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
         .next()
         .filter(|s| !s.is_empty())
         .unwrap_or("unknown")
         .to_string()
+}
+
+/// True when `name` is not a real project name: empty, a relative marker, a
+/// drive/filesystem root, a bare drive letter, or still path-like.
+fn is_repo_rootish(name: &str) -> bool {
+    let n = name.trim();
+    if n.is_empty() || n == "." || n == ".." || n == "~" {
+        return true;
+    }
+    if n.contains('/') || n.contains('\\') {
+        return true;
+    }
+    let b = n.as_bytes();
+    n.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':'
+}
+
+/// Server-side guard (defense in depth): the CLI already sends a clean repo
+/// basename, but an old or buggy client could send a path or a drive/fs root
+/// (e.g. `D:\`). Reduce to a basename and coerce anything root-ish to "unknown"
+/// so such values never poison the per-repo rollups (#217).
+fn clean_repo(raw: &str) -> String {
+    let name = repo_from_path(raw);
+    if is_repo_rootish(&name) {
+        "unknown".to_string()
+    } else {
+        name
+    }
 }
 
 /// Map an internal error to a generic 500. The real error goes to the logs
@@ -2212,7 +2244,23 @@ mod tests {
     #[test]
     fn repo_from_path_basename() {
         assert_eq!(repo_from_path("/a/b/illumine/"), "illumine");
+        assert_eq!(repo_from_path("D:\\tokenmoth\\"), "tokenmoth");
+        assert_eq!(repo_from_path("C:\\a\\b"), "b");
+        assert_eq!(repo_from_path("D:\\"), "D:");
         assert_eq!(repo_from_path(""), "unknown");
+    }
+
+    #[test]
+    fn clean_repo_rejects_paths_and_drive_roots() {
+        // Clean basenames pass through.
+        assert_eq!(clean_repo("tokenmoth"), "tokenmoth");
+        assert_eq!(clean_repo("D:\\sippd\\"), "sippd");
+        assert_eq!(clean_repo("/home/x/proj"), "proj");
+        // Drive/fs roots and path-like junk are coerced to "unknown".
+        assert_eq!(clean_repo("D:\\"), "unknown");
+        assert_eq!(clean_repo("C:"), "unknown");
+        assert_eq!(clean_repo("/"), "unknown");
+        assert_eq!(clean_repo(""), "unknown");
     }
 
     #[test]
