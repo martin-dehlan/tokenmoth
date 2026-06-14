@@ -5,6 +5,14 @@ real time. A premium micro-SaaS: tiny Rust ingestion API, a zero-setup Rust CLI 
 installs a Claude Code hook, and a neo-brutalist Next.js dashboard styled like an
 analog breaker fuse box (*Sicherungskasten*).
 
+<p align="center">
+  <a href="./docs/demo/tokenmoth-demo.mp4">
+    <img src="./docs/demo/tokenmoth-demo.gif" alt="TokenMoth product tour — dashboard, per-repo drill-down and per-session cost anatomy" width="760">
+  </a>
+  <br>
+  <em>The dashboard on demo data — <a href="./docs/demo/tokenmoth-demo.mp4">watch the MP4</a>. Built with <a href="./scripts/README.md"><code>scripts/record-demo.mjs</code></a>.</em>
+</p>
+
 > ⚠️ Read [`AUDIT.md`](./AUDIT.md) first. Claude Code hook payloads do **not** carry
 > token counts — usage is parsed from the session transcript. The architecture here is
 > the corrected design, not the naive "forward the hook payload" one.
