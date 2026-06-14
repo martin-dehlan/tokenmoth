@@ -294,21 +294,34 @@ body {
 }
 
 /* New-item arrival: a row flagged [data-new] (an id not seen before) slides in
-   from the top with a brief highlight that settles to transparent. Declared
-   after row-enter so it wins for the same element. (#205) */
+   from the top with a gentle pop, and a highlight (tint + left accent bar) that
+   lingers then settles — so a new session clearly reads as just-arrived. (#205) */
 @keyframes row-arrive {
-  0% { opacity: 0; transform: translateY(-12px); }
-  60% { opacity: 1; }
+  0% { opacity: 0; transform: translateY(-18px) scale(0.99); }
+  55% { opacity: 1; transform: translateY(0) scale(1.012); }
   100% { transform: none; }
 }
-@keyframes row-flash {
-  from { background-color: var(--accent-faint); }
-  to { background-color: transparent; }
+@keyframes row-highlight {
+  0%, 55% {
+    background-color: var(--accent-faint);
+    box-shadow: inset 3px 0 0 0 var(--accent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 3px 0 0 0 transparent;
+  }
 }
 .list-enter > [data-new] {
+  border-radius: 6px;
   animation:
-    row-arrive var(--motion) var(--ease-out) both,
-    row-flash var(--motion-slow) var(--ease-out) both;
+    row-arrive 560ms var(--ease-out) both,
+    row-highlight 1900ms var(--ease-out) both;
+}
+/* Recording: slower and held longer so the arrival is unmistakable on camera. */
+:root[data-motion="full"] .list-enter > [data-new] {
+  animation:
+    row-arrive 760ms var(--ease-out) both,
+    row-highlight 2800ms var(--ease-out) both;
 }
 
 /* Page transition (#206): app/template.tsx remounts per navigation, so this
