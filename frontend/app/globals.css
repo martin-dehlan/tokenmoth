@@ -281,6 +281,26 @@ body {
   animation-delay: calc(var(--motion-stagger) * var(--d, 0));
 }
 
+/* Cost-anatomy per-call bars (the SVG growth chart) grow up from the baseline,
+   staggered left-to-right, when revealed. Each rect's delay is set inline. */
+@keyframes ca-grow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+.ca-bar {
+  transform-box: fill-box;
+  transform-origin: bottom;
+}
+[data-reveal="out"] .ca-bar {
+  transform: scaleY(0);
+}
+[data-reveal="in"] .ca-bar {
+  animation: ca-grow var(--motion-slow) var(--ease-out) both;
+}
+:root[data-motion="full"] [data-reveal="in"] .ca-bar {
+  animation-duration: 680ms;
+}
+
 /* List rows: fade + slide in on first view, staggered (#205). Applied to a
    [data-reveal].list-enter container (e.g. SessionList). Rows render normally
    until revealed, so no flash; reduced motion (below) collapses it. */

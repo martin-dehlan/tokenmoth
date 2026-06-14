@@ -90,7 +90,7 @@ export default function CostAnatomy({
       </RevealOnView>
 
       {sizes.length > 1 && (
-        <div>
+        <RevealOnView>
           <div className="flex items-baseline justify-between mb-2">
             <span className="text-[10px] uppercase tracking-label text-faint">
               context size per API call
@@ -109,6 +109,8 @@ export default function CostAnatomy({
             {sizes.map((s, i) => (
               <rect
                 key={i}
+                className="ca-bar"
+                style={{ animationDelay: `calc(var(--motion-stagger) * ${i})` }}
                 x={i + 0.12}
                 y={100 - (s / peak) * 100}
                 width={0.76}
@@ -125,7 +127,7 @@ export default function CostAnatomy({
                 ` — re-paid by every one of the ${turnCount - jumpAt - 1} calls after it`}
             </p>
           )}
-        </div>
+        </RevealOnView>
       )}
 
       {total > 0 && setupShare > 0 && (
