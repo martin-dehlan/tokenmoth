@@ -131,6 +131,23 @@ async function panToBottom(page) {
   await easeScrollTo(page, target, ms);
 }
 
+// Slow pan so a selector sits `frac` down from the top, then the caller holds.
+async function panToSelector(page, selector, frac = 0.3) {
+  const y = await page.evaluate(
+    ({ selector, frac }) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return Math.max(0, window.scrollY + r.top - window.innerHeight * frac);
+    },
+    { selector, frac },
+  );
+  if (y === null) return;
+  const start = await page.evaluate(() => window.scrollY);
+  const ms = Math.min(5000, Math.max(1400, Math.abs(y - start) * 5));
+  await easeScrollTo(page, y, ms);
+}
+
 async function goto(page, url) {
   await page.goto(url, { waitUntil: "networkidle", timeout: 60_000 });
   await sleep(SETTLE);
@@ -156,12 +173,16 @@ async function runTour(page) {
   await page.evaluate(() => window.dispatchEvent(new Event("tm-demo-arrival")));
   await sleep(3200);
 
-  // 3) Drill into a session — pan the cost-anatomy payoff.
+  // 3) Drill into a session — the deep-analytics payoff. Give it room: hold the
+  // hero, pan to the cost-anatomy / per-call growth chart and dwell so its bars
+  // build up, then pan the rest (hook overhead + MCP servers).
   await goto(page, BASE_URL + "/session/demo-aurora-api-2");
   await page.waitForSelector("main", { timeout: 30_000 });
-  await sleep(SECTION_PAUSE);
+  await sleep(SECTION_PAUSE + 800);
+  await panToSelector(page, "svg[aria-label='context size per API call']", 0.34);
+  await sleep(2600);
   await panToBottom(page);
-  await sleep(SECTION_PAUSE);
+  await sleep(SECTION_PAUSE + 800);
 
   // 4) Close on "what leaves your machine" — the privacy/trust beat, last.
   await goto(page, BASE_URL + "/data");
