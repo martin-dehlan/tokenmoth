@@ -4,6 +4,9 @@ target/
 **/*.rs.bk
 *.pdb
 
+# Demo recording intermediates
+/recordings/
+
 # Env / secrets
 .env
 .env.local

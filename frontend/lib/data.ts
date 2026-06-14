@@ -175,22 +175,21 @@ export function relativeTime(value: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export function fmtChartLabel(dayStr: string, since: string): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dayStr)) {
-    return dayStr.slice(5);
-  }
-  const date = new Date(dayStr);
-  if (Number.isNaN(date.getTime())) {
-    return dayStr;
-  }
-  // If the timeframe is in hours (e.g., "1h", "5h", "12h", "24h"), show only time.
+// Axis label for a bucket instant, rendered in the viewer's timezone `tz`
+// (IANA, e.g. "Europe/Berlin"). Hour windows show local HH:mm, day windows show
+// local MM-DD. All formatting is tz-explicit because this runs server-side (SSR),
+// where the ambient timezone is the server's (UTC), not the viewer's.
+export function fmtChartLabel(dayStr: string, since: string, tz = "UTC"): string {
+  const t = Date.parse(dayStr);
+  if (Number.isNaN(t)) return dayStr;
   if (/\dh$/.test(since)) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(t);
   }
-  // For day-level ranges, show month-day.
-  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(date.getUTCDate()).padStart(2, '0');
-  return `${mm}-${dd}`;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, month: "2-digit", day: "2-digit",
+  }).format(t);
 }
 
 // ---- chart window padding & re-bucketing ----------------------------------
@@ -270,33 +269,111 @@ function addPoints(a: SeriesPoint, b: SeriesPoint): SeriesPoint {
 // Distinct calendar days present in a series, regardless of bucket granularity.
 // "avg / day" must divide by real days — for hour windows the buckets are
 // minutes/hours, not days, so series.length would be wrong.
-export function distinctDays(points: SeriesPoint[]): number {
-  return new Set(points.map((p) => p.day.slice(0, 10))).size;
+export function distinctDays(points: SeriesPoint[], tz = "UTC"): number {
+  return new Set(points.map((p) => localDayKey(Date.parse(p.day), tz))).size;
 }
 
-export function padSeriesToWindow(points: SeriesPoint[], since: string): SeriesPoint[] {
+// ---- timezone-aware local-day helpers (DST-safe) --------------------------
+// Day-level charts must bucket by the viewer's local calendar day, not by UTC
+// midnight. These compute local days in an IANA `tz` explicitly (no reliance on
+// the server's ambient timezone).
+
+// "YYYY-MM-DD" for an instant, as seen in `tz`.
+function localDayKey(epoch: number, tz: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(epoch);
+}
+
+// Offset (ms east of UTC) that `tz` has at instant `epoch`.
+function tzOffsetMs(epoch: number, tz: string): number {
+  const p = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(epoch);
+  const m: Record<string, number> = {};
+  for (const x of p) if (x.type !== "literal") m[x.type] = Number(x.value);
+  const hour = m.hour === 24 ? 0 : m.hour; // some engines emit "24" for midnight
+  const asUtc = Date.UTC(m.year, m.month - 1, m.day, hour, m.minute, m.second);
+  return asUtc - epoch + (epoch % 1000); // ignore sub-second drift
+}
+
+// Epoch ms of local midnight for the calendar day named by `key` (YYYY-MM-DD).
+function localMidnightFromKey(key: string, tz: string): number {
+  const baseUtc = Date.parse(key + "T00:00:00Z");
+  let guess = baseUtc - tzOffsetMs(baseUtc, tz);
+  if (localDayKey(guess, tz) !== key) guess = baseUtc - tzOffsetMs(guess, tz);
+  return guess;
+}
+
+// Ordered local-day keys covering [startEpoch, endEpoch] inclusive.
+function eachLocalDay(startEpoch: number, endEpoch: number, tz: string): string[] {
+  const endKey = localDayKey(endEpoch, tz);
+  const keys: string[] = [];
+  let key = localDayKey(startEpoch, tz);
+  for (let i = 0; i < 400; i++) {
+    keys.push(key);
+    if (key === endKey) break;
+    // +36h overshoots one calendar day (DST shifts ≤2h), then snap to midnight.
+    key = localDayKey(localMidnightFromKey(key, tz) + 36 * HOUR, tz);
+  }
+  return keys;
+}
+
+export function padSeriesToWindow(points: SeriesPoint[], since: string, tz = "UTC"): SeriesPoint[] {
   const win = windowMs(since);
   if (win === null) return points; // "all" — keep the data extent
   const step = bucketMs(since);
   const now = Date.now();
-  const end = Math.floor(now / step) * step;
-  const start = Math.floor((now - win) / step) * step;
 
-  // Aggregate backend buckets into the (coarser-or-equal) display bins. Multiple
-  // fine buckets in one display bin are summed, not overwritten.
-  const byBucket = new Map<number, SeriesPoint>();
+  // Sub-day windows (1h/5h/12h/24h): bucket by absolute instant (epoch floor).
+  // Boundaries are tz-agnostic; only the labels need the tz, applied later.
+  if (step < DAY) {
+    const end = Math.floor(now / step) * step;
+    const start = Math.floor((now - win) / step) * step;
+    const byBucket = new Map<number, SeriesPoint>();
+    for (const p of points) {
+      const t = Date.parse(p.day);
+      if (Number.isNaN(t)) continue;
+      const b = Math.floor(t / step) * step;
+      const prev = byBucket.get(b);
+      byBucket.set(b, prev ? addPoints(prev, p) : { ...p, day: new Date(b).toISOString() });
+    }
+    const out: SeriesPoint[] = [];
+    for (let t = start; t <= end; t += step) {
+      out.push(byBucket.get(t) ?? emptyPoint(new Date(t).toISOString()));
+    }
+    return out;
+  }
+
+  // Day-or-coarser windows (7d/30d/90d): bucket by LOCAL calendar day in `tz`,
+  // so day boundaries and the x-axis match the viewer's clock, not UTC.
+  const daysCount = Math.round(win / DAY);
+  const daysPerBin = Math.round(step / DAY); // 1 for 7d/30d, 3 for 90d
+  const dayKeys = eachLocalDay(now - (daysCount - 1) * DAY, now, tz);
+
+  // Sum backend points (already at local-midnight instants) into their day key.
+  const byDay = new Map<string, SeriesPoint>();
   for (const p of points) {
     const t = Date.parse(p.day);
     if (Number.isNaN(t)) continue;
-    const b = Math.floor(t / step) * step;
-    const binDay = new Date(b).toISOString();
-    const prev = byBucket.get(b);
-    byBucket.set(b, prev ? addPoints(prev, p) : { ...p, day: binDay });
+    const key = localDayKey(t, tz);
+    const prev = byDay.get(key);
+    byDay.set(key, prev ? addPoints(prev, p) : { ...p });
   }
 
+  // Build the grid, grouping consecutive local days into bins of `daysPerBin`.
   const out: SeriesPoint[] = [];
-  for (let t = start; t <= end; t += step) {
-    out.push(byBucket.get(t) ?? emptyPoint(new Date(t).toISOString()));
+  for (let i = 0; i < dayKeys.length; i += daysPerBin) {
+    const chunk = dayKeys.slice(i, i + daysPerBin);
+    const dayIso = new Date(localMidnightFromKey(chunk[0], tz)).toISOString();
+    let acc = emptyPoint(dayIso);
+    for (const k of chunk) {
+      const pt = byDay.get(k);
+      if (pt) acc = { ...addPoints(acc, pt), day: dayIso };
+    }
+    out.push(acc);
   }
   return out;
 }
@@ -378,13 +455,14 @@ export async function fetchRepoSeries(
   accessToken: string,
   name: string,
   since = "30d",
+  tz = "UTC",
 ): Promise<SeriesResult> {
   if (!accessToken) {
     return demoSeries(name, since, "not signed in — showing demo data");
   }
   try {
     const res = await fetch(
-      `${API_URL}/v1/repos/${encodeURIComponent(name)}/series?since=${encodeURIComponent(since)}`,
+      `${API_URL}/v1/repos/${encodeURIComponent(name)}/series?since=${encodeURIComponent(since)}&tz=${encodeURIComponent(tz)}`,
       { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" },
     );
     if (!res.ok) return demoSeries(name, since, `API responded ${res.status} — showing demo data`);
@@ -402,12 +480,12 @@ export async function fetchRepoSeries(
 }
 
 // Account-wide daily series across all repos (GET /v1/series).
-export async function fetchAccountSeries(accessToken: string, since = "30d"): Promise<SeriesResult> {
+export async function fetchAccountSeries(accessToken: string, since = "30d", tz = "UTC"): Promise<SeriesResult> {
   if (!accessToken) {
     return demoSeries("all repos", since, "not signed in — showing demo data");
   }
   try {
-    const res = await fetch(`${API_URL}/v1/series?since=${encodeURIComponent(since)}`, {
+    const res = await fetch(`${API_URL}/v1/series?since=${encodeURIComponent(since)}&tz=${encodeURIComponent(tz)}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
@@ -572,12 +650,12 @@ function errorDashboard(error: string): DashboardData {
   };
 }
 
-export async function fetchDashboard(accessToken: string, since = "30d"): Promise<DashboardData> {
+export async function fetchDashboard(accessToken: string, since = "30d", tz = "UTC"): Promise<DashboardData> {
   // Demo data is only for anonymous visitors (no session). Signed-in users get
   // a real error instead of fake data when the API fails.
   if (!accessToken) return demoDashboard(since, "not signed in — showing demo data");
   try {
-    const res = await fetch(`${API_URL}/v1/dashboard?since=${encodeURIComponent(since)}`, {
+    const res = await fetch(`${API_URL}/v1/dashboard?since=${encodeURIComponent(since)}&tz=${encodeURIComponent(tz)}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });

@@ -10,6 +10,7 @@ import BudgetBanner from "@/components/BudgetBanner";
 import { fetchDashboard, fetchBudget, fmtTokens, fmtUsd, fmtChartLabel, padSeriesToWindow, chartUnitLabel, distinctDays } from "@/lib/data";
 import { PAGE_MAIN, WINDOWS } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
+import { getTimezone } from "@/lib/tz";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function Dashboard({
   const since = (WINDOWS as readonly string[]).includes(searchParams.since ?? "")
     ? searchParams.since!
     : "30d";
+  const tz = getTimezone();
   const supabase = createClient();
   const {
     data: { session },
@@ -34,7 +36,7 @@ export default async function Dashboard({
 
   // Dashboard + budget are independent — fetch them in parallel. (Monthly
   // budget is window-independent: always the current calendar month.)
-  const [dashboard, budget] = await Promise.all([fetchDashboard(token, since), fetchBudget(token)]);
+  const [dashboard, budget] = await Promise.all([fetchDashboard(token, since, tz), fetchBudget(token)]);
   const { repos, series, models, trends, apiCostUsd, overheadByHook, mcpUsage, avgBaselineTokens, source, error } =
     dashboard;
   const live = source === "live";
@@ -74,7 +76,7 @@ export default async function Dashboard({
   const grandOverhead = repos.reduce((a, r) => a + r.hookOverheadTokens, 0);
   const overheadPct = grandTokens > 0 ? Math.round((grandOverhead / grandTokens) * 100) : 0;
   const ranked = [...repos].sort((a, b) => b.totalTokens - a.totalTokens);
-  const activeDays = Math.max(1, distinctDays(series));
+  const activeDays = Math.max(1, distinctDays(series, tz));
   const avgPerDay = grandTokens / activeDays;
   // Calendar length of the window for the optimizer's monthly projection
   // ("at this pace") — falls back to active days for "all".
@@ -147,7 +149,7 @@ export default async function Dashboard({
               data ever shows the empty state. */}
           <section className="px-4 sm:px-8 py-6 border-t border-hair">
             {(() => {
-              const chartPoints = padSeriesToWindow(series, since);
+              const chartPoints = padSeriesToWindow(series, since, tz);
               return chartPoints.length > 0 ? (
                 <AnnotatedChart
                   series={[
@@ -157,7 +159,7 @@ export default async function Dashboard({
                       values: chartPoints.map((p) => p.totalTokens),
                     },
                   ]}
-                  xLabels={chartPoints.map((p) => fmtChartLabel(p.day, since))}
+                  xLabels={chartPoints.map((p) => fmtChartLabel(p.day, since, tz))}
                   format={fmtTokens}
                 />
               ) : (
