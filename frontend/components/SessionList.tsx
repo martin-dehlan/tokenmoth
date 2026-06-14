@@ -1,15 +1,78 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { SessionUsage, fmtTokens, relativeTime } from "@/lib/data";
+import { useInViewOnce } from "@/lib/useInViewOnce";
 
-export default function SessionList({ sessions }: { sessions: SessionUsage[] }) {
-  if (sessions.length === 0) {
+// Rows fade+slide in (staggered) the first time the list scrolls into view.
+// A session that shows up *after* first render — i.e. an id we haven't seen
+// before — gets the stronger "arrival" treatment (slide from the top + a brief
+// highlight), so a new session reads as arriving rather than just appearing.
+// First render is never "arrival" (every id is seeded as already-seen), per the
+// restraint policy (#205/#207). `demoArrival` injects one synthetic arrival a
+// beat after mount so the product tour can capture it; prod never sets it.
+export default function SessionList({
+  sessions,
+  demoArrival = false,
+}: {
+  sessions: SessionUsage[];
+  demoArrival?: boolean;
+}) {
+  const [rows, setRows] = useState<SessionUsage[]>(sessions);
+  const seen = useRef<Set<string>>(new Set(sessions.map((s) => s.sessionId)));
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  const [ref, inView] = useInViewOnce<HTMLDivElement>();
+
+  // Real path: when the server hands us a new set (e.g. a future refetch/poll),
+  // diff against what we've seen and flag genuinely new ids as arrivals.
+  useEffect(() => {
+    const fresh = sessions.filter((s) => !seen.current.has(s.sessionId)).map((s) => s.sessionId);
+    if (fresh.length) {
+      fresh.forEach((id) => seen.current.add(id));
+      setNewIds(new Set(fresh));
+    }
+    setRows(sessions);
+  }, [sessions]);
+
+  // Demo-only: drop one new session in so the arrival animation is on camera.
+  // The recorder fires a `tm-demo-arrival` event once it has panned the history
+  // into view, so the arrival is deterministic; a timeout is the fallback for
+  // manual viewing. Guarded so it only ever injects once.
+  const injected = useRef(false);
+  useEffect(() => {
+    if (!demoArrival) return;
+    const base = sessions[0];
+    if (!base) return;
+    const inject = () => {
+      if (injected.current) return;
+      injected.current = true;
+      const arrived: SessionUsage = {
+        ...base,
+        sessionId: "demo-arrival",
+        model: "claude-opus-4-8",
+        endedAt: new Date().toISOString(),
+      };
+      seen.current.add(arrived.sessionId);
+      setNewIds(new Set([arrived.sessionId]));
+      setRows((prev) => [arrived, ...prev.filter((r) => r.sessionId !== arrived.sessionId)]);
+    };
+    window.addEventListener("tm-demo-arrival", inject);
+    const t = setTimeout(inject, 4000);
+    return () => {
+      window.removeEventListener("tm-demo-arrival", inject);
+      clearTimeout(t);
+    };
+  }, [demoArrival, sessions]);
+
+  if (rows.length === 0) {
     return (
       <div className="text-[12px] text-faint py-8 text-center">no sessions in this window yet.</div>
     );
   }
   return (
-    <div className="divide-y divide-hair">
-      {sessions.map((s) => {
+    <div ref={ref} data-reveal={inView ? "in" : "out"} className="divide-y divide-hair list-enter">
+      {rows.map((s) => {
         const pct = s.totalTokens > 0 ? Math.round((s.hookOverheadTokens / s.totalTokens) * 100) : 0;
         const hooks = Object.entries(s.hookOverheadBreakdown)
           .filter(([, t]) => t > 0)
@@ -18,6 +81,7 @@ export default function SessionList({ sessions }: { sessions: SessionUsage[] }) 
         return (
           <Link
             key={s.sessionId}
+            data-new={newIds.has(s.sessionId) ? "" : undefined}
             href={`/session/${encodeURIComponent(s.sessionId)}`}
             className="py-3 flex flex-col gap-1.5 group hover:bg-canvas -mx-2 px-2 rounded-btn transition-colors"
           >
