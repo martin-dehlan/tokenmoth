@@ -222,5 +222,5 @@ Gotchas (codified in `scripts/deploy-lambda.sh`): use the Supabase **session poo
 is feature-gated (`--features lambda`), local/compose stays `axum::serve`.
 
 Secrets live **only** in AWS Secrets Manager (`tokenmoth/prod`), operator-set — never in
-the repo. **Project isolation:** everything tagged `Project=tokenmoth`; attach
-`aws/cofounder-illumine-iam-policy.json` to scope a teammate away from TokenMoth.
+the repo. **Project isolation:** everything is tagged `Project=tokenmoth`, so a
+resource-tag IAM condition can scope access per teammate.

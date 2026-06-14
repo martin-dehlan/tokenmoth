@@ -399,11 +399,11 @@ function withTotals(
 
 export const DEMO_REPOS: RepoUsage[] = [
   { repo: "tokenmoth", sessions: 42, inputTokens: 1_240_000, outputTokens: 880_000, cacheReadTokens: 9_300_000, cacheCreationTokens: 420_000, lastActive: "2m ago" },
-  { repo: "cybermusic", sessions: 88, inputTokens: 3_900_000, outputTokens: 2_100_000, cacheReadTokens: 21_000_000, cacheCreationTokens: 1_050_000, lastActive: "1h ago" },
-  { repo: "sippd", sessions: 67, inputTokens: 2_400_000, outputTokens: 1_300_000, cacheReadTokens: 14_500_000, cacheCreationTokens: 700_000, lastActive: "3h ago" },
-  { repo: "illumine", sessions: 31, inputTokens: 980_000, outputTokens: 610_000, cacheReadTokens: 6_700_000, cacheCreationTokens: 310_000, lastActive: "1d ago" },
-  { repo: "prooved", sessions: 19, inputTokens: 520_000, outputTokens: 290_000, cacheReadTokens: 3_100_000, cacheCreationTokens: 140_000, lastActive: "2d ago" },
-  { repo: "eam-tool", sessions: 7, inputTokens: 160_000, outputTokens: 95_000, cacheReadTokens: 900_000, cacheCreationTokens: 44_000, lastActive: "5d ago" },
+  { repo: "music-app", sessions: 88, inputTokens: 3_900_000, outputTokens: 2_100_000, cacheReadTokens: 21_000_000, cacheCreationTokens: 1_050_000, lastActive: "1h ago" },
+  { repo: "mobile-app", sessions: 67, inputTokens: 2_400_000, outputTokens: 1_300_000, cacheReadTokens: 14_500_000, cacheCreationTokens: 700_000, lastActive: "3h ago" },
+  { repo: "webapp", sessions: 31, inputTokens: 980_000, outputTokens: 610_000, cacheReadTokens: 6_700_000, cacheCreationTokens: 310_000, lastActive: "1d ago" },
+  { repo: "saas-api", sessions: 19, inputTokens: 520_000, outputTokens: 290_000, cacheReadTokens: 3_100_000, cacheCreationTokens: 140_000, lastActive: "2d ago" },
+  { repo: "internal-tool", sessions: 7, inputTokens: 160_000, outputTokens: 95_000, cacheReadTokens: 900_000, cacheCreationTokens: 44_000, lastActive: "5d ago" },
 ].map(withTotals);
 
 // ---- per-repo daily series (GET /v1/repos/:name/series) -------------------
