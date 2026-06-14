@@ -426,7 +426,7 @@ fn cmd_report_dry_run() -> anyhow::Result<()> {
         anyhow::bail!("could not parse {}", path.display());
     };
     let session_id = p.session_id.clone().unwrap_or_else(|| "<unknown>".into());
-    let repo = resolve_repo(None, &p.cwd_counts);
+    let repo = resolve_repo(None, &p.cwd_counts, &p.touched_dir_counts);
     let mcp = mcp_servers(None, &p.cwd_counts);
     let body = telemetry_body(&session_id, &repo, &p, p.last_ts.as_deref(), &mcp);
     // Commentary on stderr so stdout stays pipeable JSON (e.g. `| jq`).
@@ -489,7 +489,7 @@ fn process_report(key: &str, api_url: &str, buf: &str) -> anyhow::Result<()> {
         .unwrap_or_default();
 
     // Prefer the real git repo the session worked in over the launch cwd (#109).
-    let repo = resolve_repo(Some(&cwd), &p.cwd_counts);
+    let repo = resolve_repo(Some(&cwd), &p.cwd_counts, &p.touched_dir_counts);
     let mcp = mcp_servers(Some(&cwd), &p.cwd_counts);
     // Live report: no ended_at → the server stamps now() (current behavior).
     let body = telemetry_body(&session_id, &repo, &p, None, &mcp);
@@ -584,7 +584,7 @@ fn cmd_backfill(
             skipped += 1; // no session id → can't upsert the right row
             continue;
         };
-        let repo = resolve_repo(None, &p.cwd_counts);
+        let repo = resolve_repo(None, &p.cwd_counts, &p.touched_dir_counts);
         // Privacy/scoping filters (apply before the payload is even built).
         if let Some(want) = repo_filter {
             if repo != want {
@@ -1052,6 +1052,11 @@ struct Parsed {
     /// the dominant git repo a session actually worked in, instead of the
     /// home/non-repo dir it was launched from (#109).
     cwd_counts: HashMap<String, i64>,
+    /// Per-directory counts of files the session touched (Read/Edit/Write etc.),
+    /// so a session run from a non-repo parent (e.g. `D:\`) still attributes to
+    /// the git repo its files live in (#217). PRIVACY: only the parent directory
+    /// is kept here — the file path itself is never stored or transmitted.
+    touched_dir_counts: HashMap<String, i64>,
     /// Last message `timestamp` seen — the session's real end time, sent by
     /// `backfill` as `ended_at` so re-ingest preserves history instead of now().
     last_ts: Option<String>,
@@ -1121,6 +1126,20 @@ fn parse_transcript_reader<R: BufRead>(reader: R, resolver: &PluginResolver) -> 
                 if item.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
                     continue;
                 }
+                // Touched-file directory for repo attribution (#217). Read/Edit/
+                // Write/NotebookEdit carry the target in `input.file_path` (or
+                // `notebook_path`/`path`). PRIVACY: only the parent directory is
+                // kept — to resolve its git repo — never the file path itself.
+                for key in ["file_path", "notebook_path", "path"] {
+                    if let Some(fp) = item.get("input").and_then(|i| i.get(key)).and_then(|x| x.as_str())
+                    {
+                        if let Some(dir) = parent_dir(fp) {
+                            *p.touched_dir_counts.entry(dir).or_insert(0) += 1;
+                        }
+                        break; // one path per tool_use is enough
+                    }
+                }
+                // MCP server name (#153): `mcp__<server>__<tool>` → server only.
                 let Some(name) = item.get("name").and_then(|n| n.as_str()) else { continue };
                 let Some(rest) = name.strip_prefix("mcp__") else { continue };
                 let server = rest.split("__").next().unwrap_or(rest);
@@ -1322,24 +1341,110 @@ fn git_repo_name(cwd: &str) -> Option<String> {
         return None;
     }
     let top = String::from_utf8(out.stdout).ok()?;
-    Some(top.trim().rsplit('/').next()?.to_string())
+    let name = top.trim().rsplit(['/', '\\']).next()?.to_string();
+    // A git toplevel should never be a drive/filesystem root, but guard anyway so
+    // a pathological repo can't surface as `D:` / `/`.
+    if is_repo_rootish(&name) {
+        None
+    } else {
+        Some(name)
+    }
 }
 
+/// Last path segment, separator-agnostic (POSIX `/` and Windows `\`). Returns
+/// "unknown" for empty/separator-only input. NOTE: a bare drive root like `D:\`
+/// yields `D:` here — callers MUST additionally reject it via `is_repo_rootish`
+/// (a repo is never a drive or filesystem root).
 fn repo_from_path(p: &str) -> String {
-    p.trim_end_matches('/')
-        .rsplit('/')
+    p.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
         .next()
         .filter(|s| !s.is_empty())
         .unwrap_or("unknown")
         .to_string()
 }
 
-/// Resolve the repo a session belongs to, preferring a real git repo so sessions
-/// launched from a non-repo dir (e.g. `~`) aren't bucketed under the home folder
-/// name (#109). Order: the hook cwd if it's a git repo → the most-frequent
-/// transcript cwd that is → the basename of the best cwd we have.
-/// PRIVACY: returns only a repo *basename*, never a path.
-fn resolve_repo(hook_cwd: Option<&str>, cwd_counts: &HashMap<String, i64>) -> String {
+/// True when `name` is not a real project name: empty, a relative marker, a
+/// drive/filesystem root, a bare drive letter, or still path-like (a separator
+/// survived). Such values must never be emitted as a repo — they collapse
+/// unrelated work (e.g. everything under `D:\`) into one meaningless bucket.
+fn is_repo_rootish(name: &str) -> bool {
+    let n = name.trim();
+    if n.is_empty() || n == "." || n == ".." || n == "~" {
+        return true;
+    }
+    // A clean basename has no separators; if one survived, a path leaked.
+    if n.contains('/') || n.contains('\\') {
+        return true;
+    }
+    // Bare drive letter: "C:" / "D:" (a trailing slash is already trimmed off).
+    let b = n.as_bytes();
+    if n.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+        return true;
+    }
+    false
+}
+
+/// Directory containing `p` (separator-agnostic). None if `p` has no parent.
+fn parent_dir(p: &str) -> Option<String> {
+    let trimmed = p.trim_end_matches(['/', '\\']);
+    let idx = trimmed.rfind(['/', '\\'])?;
+    let dir = &trimmed[..idx];
+    (!dir.is_empty()).then(|| dir.to_string())
+}
+
+/// User's home directory, used to reject sessions launched from `~` as a "repo".
+fn home_dir() -> Option<String> {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()
+}
+
+/// Normalize a path for equality checks: unify separators, drop a trailing one.
+fn norm_path(p: &str) -> String {
+    p.replace('\\', "/").trim_end_matches('/').to_string()
+}
+
+/// Among the directories of touched files, group by git repo and return the
+/// dominant one (most touches; ties broken by repo name, ascending). None if no
+/// directory resolves to a git repo. Git is queried once per unique directory.
+fn dominant_touched_repo(touched_dir_counts: &HashMap<String, i64>) -> Option<String> {
+    let mut dirs: Vec<(&String, &i64)> = touched_dir_counts.iter().collect();
+    dirs.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    let mut by_repo: HashMap<String, i64> = HashMap::new();
+    let mut cache: HashMap<&str, Option<String>> = HashMap::new();
+    for (dir, n) in dirs {
+        let repo = cache
+            .entry(dir.as_str())
+            .or_insert_with(|| git_repo_name(dir))
+            .clone();
+        if let Some(r) = repo {
+            *by_repo.entry(r).or_insert(0) += *n;
+        }
+    }
+    by_repo
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+        .map(|(r, _)| r)
+}
+
+/// Resolve the repo a session belongs to. A repo is a real git project — never
+/// the directory a session was *launched* from when that's a non-repo parent
+/// (home, a drive root, a folder holding several repos). Order:
+///   1. the hook cwd, if it's a git repo;
+///   2. the most-frequent transcript cwd that is a git repo;
+///   3. the dominant git repo among the files the session actually touched, so a
+///      session run from `D:\` that edits `D:\tokenmoth\…` resolves to `tokenmoth`
+///      (#217);
+///   4. the basename of the best cwd — but a root/drive/home or anything
+///      path-like yields "unknown" rather than a bogus bucket.
+/// PRIVACY: only a repo *basename* is ever returned; paths are inspected locally
+/// and never sent.
+fn resolve_repo(
+    hook_cwd: Option<&str>,
+    cwd_counts: &HashMap<String, i64>,
+    touched_dir_counts: &HashMap<String, i64>,
+) -> String {
     // 1) the cwd the session ended in, if it's a git repo — most accurate.
     if let Some(c) = hook_cwd {
         if let Some(r) = git_repo_name(c) {
@@ -1354,15 +1459,28 @@ fn resolve_repo(hook_cwd: Option<&str>, cwd_counts: &HashMap<String, i64>) -> St
             return r;
         }
     }
-    // 3) fallback: basename of the dominant transcript cwd (where work happened),
-    //    else the hook cwd. Prefer the transcript cwd so a home-launched session
-    //    isn't labeled after the home dir when no cwd resolves to a git repo now.
+    // 3) the git repo most touched files live in — catches sessions launched from
+    //    a non-repo parent that nonetheless worked on a real project (#217).
+    if let Some(r) = dominant_touched_repo(touched_dir_counts) {
+        return r;
+    }
+    // 4) fallback: basename of the dominant transcript cwd (where work happened),
+    //    else the hook cwd. Reject home/roots/drives/path-like → "unknown" so we
+    //    never bucket unrelated work under a folder that isn't a project.
     let best = cwds
         .first()
         .map(|(c, _)| (*c).clone())
         .or_else(|| hook_cwd.map(str::to_string))
         .unwrap_or_else(|| ".".to_string());
-    repo_from_path(&best)
+    if home_dir().is_some_and(|h| norm_path(&h) == norm_path(&best)) {
+        return "unknown".to_string();
+    }
+    let name = repo_from_path(&best);
+    if is_repo_rootish(&name) {
+        "unknown".to_string()
+    } else {
+        name
+    }
 }
 
 #[cfg(test)]
@@ -1790,11 +1908,65 @@ mod tests {
     fn resolve_repo_falls_back_to_dominant_cwd_basename() {
         // No path here is a real git repo, so resolution falls through to the
         // basename of the most-frequent transcript cwd (#109 fallback path).
+        let no_files = HashMap::new();
         let mut counts = HashMap::new();
         counts.insert("/no/such/sample".to_string(), 50);
         counts.insert("/no/such/home".to_string(), 3);
-        assert_eq!(resolve_repo(None, &counts), "sample");
+        assert_eq!(resolve_repo(None, &counts, &no_files), "sample");
         // A non-repo hook cwd doesn't win over the dominant transcript cwd.
-        assert_eq!(resolve_repo(Some("/no/such/home"), &counts), "sample");
+        assert_eq!(resolve_repo(Some("/no/such/home"), &counts, &no_files), "sample");
+    }
+
+    #[test]
+    fn repo_from_path_handles_windows_separators() {
+        assert_eq!(repo_from_path("D:\\tokenmoth\\"), "tokenmoth");
+        assert_eq!(repo_from_path("C:\\a\\b"), "b");
+        assert_eq!(repo_from_path("D:/proj/"), "proj");
+        assert_eq!(repo_from_path("/a/b/sippd"), "sippd");
+        // A bare drive root reduces to the drive token (rejected by is_repo_rootish).
+        assert_eq!(repo_from_path("D:\\"), "D:");
+        assert_eq!(repo_from_path(""), "unknown");
+    }
+
+    #[test]
+    fn is_repo_rootish_flags_roots_drives_and_paths() {
+        for r in ["", ".", "..", "~", "/", "\\", "D:", "c:", "a/b", "a\\b", "D:\\"] {
+            assert!(is_repo_rootish(r), "{r:?} should be root-ish");
+        }
+        for ok in ["tokenmoth", "sippd", "my-repo", "repo.v2"] {
+            assert!(!is_repo_rootish(ok), "{ok:?} should be a valid repo");
+        }
+    }
+
+    #[test]
+    fn parent_dir_is_separator_agnostic() {
+        assert_eq!(parent_dir("D:\\tokenmoth\\src\\main.rs").as_deref(), Some("D:\\tokenmoth\\src"));
+        assert_eq!(parent_dir("/a/b.txt").as_deref(), Some("/a"));
+        assert_eq!(parent_dir("file.txt"), None);
+    }
+
+    #[test]
+    fn resolve_repo_rejects_drive_root() {
+        // A session launched from a drive root that isn't a git repo and touched
+        // no resolvable files must not become the repo `D:\` / `D:` (#217).
+        let no_files = HashMap::new();
+        let mut counts = HashMap::new();
+        counts.insert("D:\\".to_string(), 73);
+        assert_eq!(resolve_repo(None, &counts, &no_files), "unknown");
+        assert_eq!(resolve_repo(Some("D:\\"), &counts, &no_files), "unknown");
+    }
+
+    #[test]
+    fn resolve_repo_uses_touched_files_when_cwd_is_not_a_repo() {
+        // Step 3: cwd doesn't resolve, but touched files live in a real git repo.
+        // The test process runs inside this repo, so "." resolves to its name —
+        // exactly what attribution should pick over the non-repo launch dir.
+        if let Some(expected) = git_repo_name(".") {
+            let mut touched = HashMap::new();
+            touched.insert(".".to_string(), 5);
+            let mut counts = HashMap::new();
+            counts.insert("D:\\".to_string(), 99); // dominant but not a repo
+            assert_eq!(resolve_repo(None, &counts, &touched), expected);
+        }
     }
 }
