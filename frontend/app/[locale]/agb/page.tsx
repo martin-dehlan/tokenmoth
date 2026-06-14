@@ -59,15 +59,13 @@ function En() {
       <h2>7. Prices & payment</h2>
       <p>
         Paid plans and their prices are shown transparently during checkout. For consumers, the{" "}
-        <a href="/en/widerruf">right of withdrawal</a> also applies.{" "}
-        <span className="text-warn">Add plan details once billing is live (#117).</span>
+        <a href="/en/widerruf">right of withdrawal</a> also applies.
       </p>
       <h2>8. Liability</h2>
       <p>
         The Provider is liable without limitation for intent and gross negligence and for injury to
         life, body or health. For ordinary negligence it is liable only for breach of essential
-        contractual obligations and limited to foreseeable, contract-typical damage.{" "}
-        <span className="text-warn">Verify wording with a lawyer.</span>
+        contractual obligations and limited to foreseeable, contract-typical damage.
       </p>
       <h2>9. Term & termination</h2>
       <p>
@@ -83,7 +81,7 @@ function En() {
       <p>
         German law applies, excluding the UN Convention on Contracts for the International Sale of
         Goods. Mandatory consumer protection rules of the consumer&rsquo;s state of residence remain
-        unaffected. <span className="text-warn">Verify jurisdiction clause with a lawyer.</span>
+        unaffected.
       </p>
     </>
   );
@@ -129,15 +127,13 @@ function De() {
       <h2>7. Preise & Zahlung</h2>
       <p>
         Kostenpflichtige Tarife und deren Preise werden im Bestellprozess transparent ausgewiesen.
-        Für Verbraucher gilt zusätzlich die <a href="/de/widerruf">Widerrufsbelehrung</a>.{" "}
-        <span className="text-warn">Tarifdetails ergänzen, sobald Billing live ist (#117).</span>
+        Für Verbraucher gilt zusätzlich die <a href="/de/widerruf">Widerrufsbelehrung</a>.
       </p>
       <h2>8. Haftung</h2>
       <p>
         Der Anbieter haftet unbeschränkt bei Vorsatz und grober Fahrlässigkeit sowie bei Verletzung
         von Leben, Körper, Gesundheit. Bei einfacher Fahrlässigkeit haftet er nur bei Verletzung
         wesentlicher Vertragspflichten und begrenzt auf den vertragstypisch vorhersehbaren Schaden.
-        <span className="text-warn"> Wording mit Anwalt prüfen.</span>
       </p>
       <h2>9. Laufzeit & Kündigung</h2>
       <p>
@@ -152,8 +148,7 @@ function De() {
       <h2>11. Anwendbares Recht & Gerichtsstand</h2>
       <p>
         Es gilt deutsches Recht unter Ausschluss des UN-Kaufrechts. Zwingende
-        Verbraucherschutzvorschriften des Wohnsitzstaates bleiben unberührt.{" "}
-        <span className="text-warn">Gerichtsstandklausel mit Anwalt prüfen.</span>
+        Verbraucherschutzvorschriften des Wohnsitzstaates bleiben unberührt.
       </p>
     </>
   );

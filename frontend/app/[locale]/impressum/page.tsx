@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import LegalShell from "@/components/LegalShell";
-import { operator, PLACEHOLDER } from "@/lib/legal";
+import { operator } from "@/lib/legal";
 import { locales, isLocale, type Locale } from "@/lib/i18n";
 
 export const dynamicParams = false;
@@ -17,8 +17,6 @@ export function generateMetadata({ params }: { params: { locale: string } }): Me
 }
 
 function Field({ value }: { value: string }) {
-  if (value === PLACEHOLDER)
-    return <span className="text-warn font-mono text-[12px]">[{PLACEHOLDER}]</span>;
   return <>{value}</>;
 }
 
@@ -76,7 +74,7 @@ function En() {
           https://ec.europa.eu/consumers/odr/
         </a>
         . We are neither willing nor obliged to participate in dispute resolution proceedings before a
-        consumer arbitration board. <span className="text-warn">Verify obligation/wording with a lawyer.</span>
+        consumer arbitration board.
       </p>
     </>
   );
@@ -121,8 +119,7 @@ function De() {
           https://ec.europa.eu/consumers/odr/
         </a>
         . Wir sind nicht bereit und nicht verpflichtet, an Streitbeilegungsverfahren vor einer
-        Verbraucherschlichtungsstelle teilzunehmen.{" "}
-        <span className="text-warn">Pflicht/Wording mit Anwalt prüfen.</span>
+        Verbraucherschlichtungsstelle teilzunehmen.
       </p>
     </>
   );

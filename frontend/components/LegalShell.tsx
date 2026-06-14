@@ -5,29 +5,8 @@ import { lastUpdated } from "@/lib/legal";
 import { locales, localeLabel, type Locale } from "@/lib/i18n";
 
 const t = {
-  en: {
-    kicker: "legal",
-    back: "← home",
-    updated: "Last updated",
-    draft: (
-      <>
-        <strong>Draft — pending legal review.</strong> This text is a template and not yet
-        legally approved. Have it reviewed by a lawyer before publishing.
-      </>
-    ),
-  },
-  de: {
-    kicker: "rechtliches",
-    back: "← Startseite",
-    updated: "Stand",
-    draft: (
-      <>
-        <strong>Entwurf — anwaltliche Prüfung ausstehend.</strong> Dieser Text ist eine Vorlage
-        und noch nicht rechtsverbindlich freigegeben. Vor Veröffentlichung von einer
-        Anwältin/einem Anwalt prüfen lassen.
-      </>
-    ),
-  },
+  en: { kicker: "legal", back: "← home", updated: "Last updated" },
+  de: { kicker: "rechtliches", back: "← Startseite", updated: "Stand" },
 } satisfies Record<Locale, unknown>;
 
 // Shared chrome for the static legal pages — same neo-brutalist surface as the
@@ -37,13 +16,11 @@ export default function LegalShell({
   locale,
   slug,
   title,
-  draft = true,
   children,
 }: {
   locale: Locale;
   slug: string;
   title: string;
-  draft?: boolean;
   children: React.ReactNode;
 }) {
   const s = t[locale];
@@ -84,12 +61,6 @@ export default function LegalShell({
             <p className="text-[11px] text-faint mb-6">
               {s.updated}: {lastUpdated}
             </p>
-
-            {draft && (
-              <div className="mb-7 rounded-btn border border-[color-mix(in_srgb,var(--warn)_40%,transparent)] bg-[color-mix(in_srgb,var(--warn)_6%,transparent)] px-4 py-3 text-[12px] text-warn leading-relaxed">
-                {s.draft}
-              </div>
-            )}
 
             <div className="legal-prose text-[13px] text-ink leading-relaxed">{children}</div>
           </section>

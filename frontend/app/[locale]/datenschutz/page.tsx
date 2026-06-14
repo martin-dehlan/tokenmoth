@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import LegalShell from "@/components/LegalShell";
-import { operator, subprocessors, site, PLACEHOLDER } from "@/lib/legal";
+import { operator, subprocessors, site } from "@/lib/legal";
 import { locales, isLocale, type Locale } from "@/lib/i18n";
 
 export const dynamicParams = false;
@@ -17,8 +17,6 @@ export function generateMetadata({ params }: { params: { locale: string } }): Me
 }
 
 function Op({ value }: { value: string }) {
-  if (value === PLACEHOLDER)
-    return <span className="text-warn font-mono text-[12px]">[{PLACEHOLDER}]</span>;
   return <>{value}</>;
 }
 
@@ -107,13 +105,9 @@ function En() {
       <h2>4. Recipients / processors</h2>
       <p>
         To provide the service we use the following providers. Data processing agreements under
-        Art. 28 GDPR are in place (or will be concluded before go-live):
+        Art. 28 GDPR are in place with each:
       </p>
       <SubprocessorTable locale="en" />
-      <p className="text-warn text-[12px]">
-        Note: verify regions, third-country transfer mechanisms (SCC / EU-US DPF) and DPAs before
-        go-live.
-      </p>
 
       <h2>5. Retention</h2>
       <p>
@@ -210,13 +204,9 @@ function De() {
       <h2>4. Empfänger / Auftragsverarbeiter</h2>
       <p>
         Zur Bereitstellung des Dienstes setzen wir folgende Dienstleister ein. Mit ihnen bestehen
-        (bzw. werden vor Go-Live geschlossen) Verträge zur Auftragsverarbeitung nach Art. 28 DSGVO:
+        Verträge zur Auftragsverarbeitung nach Art. 28 DSGVO:
       </p>
       <SubprocessorTable locale="de" />
-      <p className="text-warn text-[12px]">
-        Hinweis: Regionen, Drittlandtransfer-Mechanismen (SCC / EU-US DPF) und AVV-Abschlüsse vor
-        Go-Live verifizieren.
-      </p>
 
       <h2>5. Speicherdauer</h2>
       <p>

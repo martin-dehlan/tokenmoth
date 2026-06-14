@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import LegalShell from "@/components/LegalShell";
-import { operator, PLACEHOLDER } from "@/lib/legal";
+import { operator } from "@/lib/legal";
 import { locales, isLocale, type Locale } from "@/lib/i18n";
 
 export const dynamicParams = false;
@@ -17,8 +17,6 @@ export function generateMetadata({ params }: { params: { locale: string } }): Me
 }
 
 function Op({ value }: { value: string }) {
-  if (value === PLACEHOLDER)
-    return <span className="text-warn font-mono text-[12px]">[{PLACEHOLDER}]</span>;
   return <>{value}</>;
 }
 
@@ -74,10 +72,9 @@ function En() {
         <li>Address of consumer(s): ____________</li>
         <li>Date, signature (only for notification on paper): ____________</li>
       </ul>
-      <p className="text-warn text-[12px]">
-        This notice only takes effect once paid plans go live (Milestone 6 / #117). Have it approved
-        by a lawyer before the first real sale and couple it with the checkout logic (button
-        &ldquo;order with obligation to pay&rdquo;, consent to start of performance).
+      <p>
+        This notice applies to consumers on paid plans and takes effect once such a contract is
+        concluded.
       </p>
     </>
   );
@@ -136,10 +133,9 @@ function De() {
         <li>Anschrift der/des Verbraucher(s): ____________</li>
         <li>Datum, Unterschrift (nur bei Mitteilung auf Papier): ____________</li>
       </ul>
-      <p className="text-warn text-[12px]">
-        Diese Belehrung greift erst mit dem Live-Gang kostenpflichtiger Pläne (Milestone 6 / #117).
-        Vor dem ersten echten Verkauf anwaltlich freigeben und mit der Checkout-Logik koppeln
-        (Button „zahlungspflichtig bestellen“, Zustimmung zum Ausführungsbeginn).
+      <p>
+        Diese Belehrung gilt für Verbraucher:innen bei kostenpflichtigen Plänen und greift, sobald
+        ein solcher Vertrag geschlossen wird.
       </p>
     </>
   );
