@@ -1,3 +1,4 @@
+import RevealOnView from "./RevealOnView";
 import { ModelUsage, fmtTokens, modelColor } from "@/lib/data";
 
 // Models are a share-of-total, not a ranking — so render one stacked
@@ -13,8 +14,11 @@ export default function ModelBreakdown({ models }: { models: ModelUsage[] }) {
   };
 
   return (
-    <div>
-      <div className="flex h-2.5 rounded-[3px_6px_6px_3px] overflow-hidden border border-line shadow-track bg-surface">
+    <RevealOnView>
+      <div
+        data-bar
+        className="flex h-2.5 rounded-[3px_6px_6px_3px] overflow-hidden border border-line shadow-track bg-surface"
+      >
         {sorted.map((m) => (
           <i
             key={m.model}
@@ -48,6 +52,6 @@ export default function ModelBreakdown({ models }: { models: ModelUsage[] }) {
           </li>
         ))}
       </ul>
-    </div>
+    </RevealOnView>
   );
 }

@@ -1,3 +1,4 @@
+import RevealOnView from "./RevealOnView";
 import { fmtTokens } from "@/lib/data";
 
 // Cost Anatomy (#152): decompose where a session's tokens actually went.
@@ -69,7 +70,7 @@ export default function CostAnatomy({
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-3">
+      <RevealOnView className="flex flex-col gap-3">
         {rows.map((r) => (
           <div
             key={r.label}
@@ -86,7 +87,7 @@ export default function CostAnatomy({
             </span>
           </div>
         ))}
-      </div>
+      </RevealOnView>
 
       {sizes.length > 1 && (
         <div>

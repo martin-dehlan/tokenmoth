@@ -2,6 +2,7 @@ import Link from "next/link";
 import TopRail from "@/components/TopRail";
 import HookBreakdown from "@/components/HookBreakdown";
 import CostAnatomy from "@/components/CostAnatomy";
+import RevealOnView from "@/components/RevealOnView";
 import { fetchSession, fmtTokens, relativeTime, type HookOverhead } from "@/lib/data";
 import { PAGE_MAIN } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
@@ -132,7 +133,7 @@ export default async function SessionDetail({ params }: { params: { id: string }
 
           {/* MCP SERVERS — loaded vs actually called (#153) */}
           {mcpNames.length > 0 && (
-            <section className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
+            <section id="mcp" className="px-4 sm:px-8 pt-7 pb-7 border-t border-hair">
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="text-[10px] uppercase tracking-label text-muted">
                   MCP servers active
@@ -141,28 +142,33 @@ export default async function SessionDetail({ params }: { params: { id: string }
                   {mcpNames.length} loaded
                 </span>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <RevealOnView className="flex flex-wrap gap-2 mcp-chips">
                 {mcpNames.map((m) => {
                   const calls = s.mcpCalls[m] ?? 0;
                   const dead = hasAnatomy && calls === 0;
                   return (
                     <span
                       key={m}
+                      data-dead={dead ? "" : undefined}
                       className={`text-[11px] font-mono border rounded-btn px-2 py-1 ${
-                        dead ? "text-warn border-warn" : "text-muted border-hair"
+                        dead
+                          ? "bg-danger/10 text-danger border-danger/60 font-medium"
+                          : "text-muted border-hair"
                       }`}
-                      title={dead ? "loaded but never called this session" : undefined}
+                      title={dead ? "loaded but never called this session — drop it" : undefined}
                     >
                       {m}
                       {hasAnatomy && (
-                        <span className={`ml-1.5 tabular-nums ${dead ? "" : "text-faint"}`}>
+                        <span
+                          className={`ml-1.5 tabular-nums ${dead ? "font-medium" : "text-accent"}`}
+                        >
                           {calls === 0 ? "0 calls" : `${calls}×`}
                         </span>
                       )}
                     </span>
                   );
                 })}
-              </div>
+              </RevealOnView>
               <p className="mt-3 text-[10px] text-faint leading-relaxed max-w-prose">
                 {hasAnatomy ? (
                   <>
