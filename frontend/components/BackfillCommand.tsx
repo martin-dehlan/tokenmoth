@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { backfillCommand, type Method } from "@/lib/install";
+import CopyIconButton from "@/components/CopyIconButton";
 
 // Copyable "import past sessions" command. The web app can't run the CLI, so —
 // like the install step — it hands the user a command to paste in their
@@ -33,10 +34,13 @@ export default function BackfillCommand({
 
   return (
     <div className="flex flex-col gap-2.5">
-      <pre className="font-mono text-[12px] leading-[1.7] text-ink whitespace-pre-wrap break-all border border-line rounded-btn bg-canvas px-4 py-3 m-0 shadow-track">
-        <span className="text-faint select-none">$ </span>
-        {cmd}
-      </pre>
+      <div className="relative">
+        <pre className="font-mono text-[12px] leading-[1.7] text-ink whitespace-pre-wrap break-all border border-line rounded-btn bg-canvas pl-4 pr-12 py-3 m-0 shadow-track">
+          <span className="text-faint select-none">$ </span>
+          {cmd}
+        </pre>
+        <CopyIconButton onClick={copy} copied={copied} />
+      </div>
       <div className="flex items-center gap-3 flex-wrap">
         <button className="btn" onClick={copy}>
           {copied ? "copied ✓" : "copy command"}

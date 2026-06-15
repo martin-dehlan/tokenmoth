@@ -6,6 +6,7 @@ import posthog from "posthog-js";
 import OsSelect from "@/components/OsSelect";
 import MethodSelect from "@/components/MethodSelect";
 import BackfillCommand from "@/components/BackfillCommand";
+import CopyIconButton from "@/components/CopyIconButton";
 import { detectOs, installSequence, methodNote, type Method, type Os } from "@/lib/install";
 
 const PH = process.env.NEXT_PUBLIC_POSTHOG_KEY;
@@ -158,14 +159,17 @@ export default function OnboardingFlow() {
               {method === "script" && <OsSelect current={os} onSelect={setOs} />}
               <MethodSelect current={method} onSelect={setMethod} />
             </div>
-            <pre className="font-mono text-[12px] leading-[1.7] text-ink whitespace-pre-wrap break-all border border-line rounded-btn bg-canvas px-4 py-3 m-0 shadow-track">
-              {cmd.split("\n").map((line, i) => (
-                <span key={i} className="block">
-                  <span className="text-faint select-none">$ </span>
-                  {line}
-                </span>
-              ))}
-            </pre>
+            <div className="relative">
+              <pre className="font-mono text-[12px] leading-[1.7] text-ink whitespace-pre-wrap break-all border border-line rounded-btn bg-canvas pl-4 pr-12 py-3 m-0 shadow-track">
+                {cmd.split("\n").map((line, i) => (
+                  <span key={i} className="block">
+                    <span className="text-faint select-none">$ </span>
+                    {line}
+                  </span>
+                ))}
+              </pre>
+              <CopyIconButton onClick={copy} copied={copied} />
+            </div>
             {note && <p className="mt-2 text-[10px] text-faint leading-relaxed">{note}</p>}
             <div className="mt-3 flex items-center gap-4 flex-wrap">
               <button
