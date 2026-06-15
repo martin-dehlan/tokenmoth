@@ -102,43 +102,6 @@ export function fmtUsd(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-// ---- subscription plan + metering (#33/#34) --------------------------------
-
-export type PlanInfo = {
-  plan: string;
-  status: string | null;
-  billingEnabled: boolean;
-  label: string;
-  priceUsd: number;
-  monthlyTokenLimit: number | null;
-  tokensThisMonth: number;
-  overLimit: boolean;
-};
-
-export async function fetchPlan(accessToken: string): Promise<PlanInfo | null> {
-  if (!accessToken) return null;
-  try {
-    const res = await fetch(`${API_URL}/v1/plan`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const d = await res.json();
-    return {
-      plan: d.plan ?? "free",
-      status: d.status ?? null,
-      billingEnabled: !!d.billing_enabled,
-      label: d.label ?? "Free",
-      priceUsd: typeof d.price_usd === "number" ? d.price_usd : 0,
-      monthlyTokenLimit: typeof d.monthly_token_limit === "number" ? d.monthly_token_limit : null,
-      tokensThisMonth: typeof d.tokens_this_month === "number" ? d.tokens_this_month : 0,
-      overLimit: !!d.over_limit,
-    };
-  } catch {
-    return null;
-  }
-}
-
 // ---- per-user monthly budget + month-to-date spend (#30) -------------------
 
 export type Budget = { budgetUsd: number; spendUsd: number; pct: number };

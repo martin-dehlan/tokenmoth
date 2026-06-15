@@ -1,11 +1,9 @@
 use axum::{
-    body::Bytes,
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
-use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -195,9 +193,6 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/keys/:id/revoke", post(revoke_key))
         .route("/v1/me", get(me).delete(delete_me))
         .route("/v1/budget", get(get_budget).put(put_budget))
-        .route("/v1/plan", get(get_plan))
-        .route("/v1/billing/checkout", post(billing_checkout))
-        .route("/v1/billing/webhook", post(billing_webhook))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
@@ -1730,253 +1725,7 @@ async fn put_budget(
     get_budget(State(st), headers).await
 }
 
-// ---- Plans & Stripe billing (#33/#34) --------------------------------------
-//
-// PLACEHOLDER TIERS — edit the prices/limits below and set the matching
-// STRIPE_PRICE_* env vars to your real Stripe price ids before going live.
-// With no STRIPE_SECRET_KEY set, the billing endpoints report disabled and the
-// app runs free-tier-only (nothing ever calls Stripe).
-
-struct Tier {
-    id: &'static str,
-    label: &'static str,
-    price_usd: f64,
-    /// Monthly billable-token allowance (input + output + cache_creation).
-    /// None = unlimited.
-    monthly_token_limit: Option<i64>,
-    /// Env var holding this tier's Stripe price id (empty for the free tier).
-    price_env: &'static str,
-}
-
-const TIERS: [Tier; 3] = [
-    Tier { id: "free", label: "Free", price_usd: 0.0,   monthly_token_limit: Some(2_000_000),  price_env: "" },
-    Tier { id: "pro",  label: "Pro",  price_usd: 20.0,  monthly_token_limit: Some(50_000_000), price_env: "STRIPE_PRICE_PRO" },
-    Tier { id: "max",  label: "Max",  price_usd: 100.0, monthly_token_limit: None,             price_env: "STRIPE_PRICE_MAX" },
-];
-
-fn tier_by_id(id: &str) -> &'static Tier {
-    TIERS.iter().find(|t| t.id == id).unwrap_or(&TIERS[0])
-}
-
-fn tier_by_price_id(price_id: &str) -> Option<&'static Tier> {
-    TIERS
-        .iter()
-        .find(|t| !t.price_env.is_empty() && env_nonempty(t.price_env).as_deref() == Some(price_id))
-}
-
-fn env_nonempty(key: &str) -> Option<String> {
-    std::env::var(key).ok().filter(|s| !s.is_empty())
-}
-
-fn stripe_secret() -> Option<String> {
-    env_nonempty("STRIPE_SECRET_KEY")
-}
-
-fn billing_enabled() -> bool {
-    stripe_secret().is_some()
-}
-
-/// Month-to-date billable tokens (input + output + cache_creation) — the same
-/// basis as the dashboard headline figure.
-async fn month_tokens(db: &PgPool, user_id: uuid::Uuid) -> Result<i64, (StatusCode, String)> {
-    sqlx::query_scalar(
-        r#"
-        select coalesce(sum(input_tokens + output_tokens + cache_creation_input_tokens), 0)::bigint
-        from token_logs
-        where user_id = $1 and ended_at >= date_trunc('month', now())
-        "#,
-    )
-    .bind(user_id)
-    .fetch_one(db)
-    .await
-    .map_err(internal)
-}
-
-#[derive(Serialize)]
-struct PlanOut {
-    plan: String,
-    status: Option<String>,
-    billing_enabled: bool,
-    label: String,
-    price_usd: f64,
-    monthly_token_limit: Option<i64>,
-    tokens_this_month: i64,
-    over_limit: bool,
-}
-
-async fn get_plan(
-    State(st): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<PlanOut>, (StatusCode, String)> {
-    let (user_id, _) = auth_supabase_user(&st, &headers).await?;
-    let (plan, status): (String, Option<String>) =
-        sqlx::query_as("select plan, subscription_status from users where id = $1")
-            .bind(user_id)
-            .fetch_one(&st.db)
-            .await
-            .map_err(internal)?;
-    let tier = tier_by_id(&plan);
-    let used = month_tokens(&st.db, user_id).await?;
-    // Only meaningful once billing is live — otherwise every heavy free-tier
-    // user would be flagged "over limit" for a feature that isn't enabled.
-    let over_limit =
-        billing_enabled() && tier.monthly_token_limit.map(|lim| used > lim).unwrap_or(false);
-    Ok(Json(PlanOut {
-        plan: tier.id.to_string(),
-        status,
-        billing_enabled: billing_enabled(),
-        label: tier.label.to_string(),
-        price_usd: tier.price_usd,
-        monthly_token_limit: tier.monthly_token_limit,
-        tokens_this_month: used,
-        over_limit,
-    }))
-}
-
-#[derive(Deserialize)]
-struct CheckoutIn {
-    tier: String,
-}
-
-#[derive(Serialize)]
-struct CheckoutOut {
-    url: String,
-}
-
-/// Create a Stripe Checkout session for a paid tier and return its hosted URL.
-/// 501 when billing is unconfigured — never a hard dependency.
-async fn billing_checkout(
-    State(st): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<CheckoutIn>,
-) -> Result<Json<CheckoutOut>, (StatusCode, String)> {
-    let (user_id, email) = auth_supabase_user(&st, &headers).await?;
-    let secret =
-        stripe_secret().ok_or((StatusCode::NOT_IMPLEMENTED, "billing not configured".to_string()))?;
-    let tier = tier_by_id(&body.tier);
-    if tier.price_env.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "tier is not purchasable".to_string()));
-    }
-    let price_id = env_nonempty(tier.price_env)
-        .ok_or((StatusCode::NOT_IMPLEMENTED, format!("{} is not set", tier.price_env)))?;
-    let base = env_nonempty("APP_BASE_URL").unwrap_or_else(|| "http://localhost:3000".to_string());
-    let mut params = vec![
-        ("mode", "subscription".to_string()),
-        ("line_items[0][price]", price_id),
-        ("line_items[0][quantity]", "1".to_string()),
-        ("success_url", format!("{base}/settings?checkout=success")),
-        ("cancel_url", format!("{base}/settings?checkout=cancel")),
-        ("client_reference_id", user_id.to_string()),
-    ];
-    if let Some(e) = email {
-        params.push(("customer_email", e));
-    }
-    let res = reqwest::Client::new()
-        .post("https://api.stripe.com/v1/checkout/sessions")
-        .bearer_auth(&secret)
-        .form(&params)
-        .send()
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("stripe: {e}")))?;
-    if !res.status().is_success() {
-        return Err((StatusCode::BAD_GATEWAY, format!("stripe error {}", res.status())));
-    }
-    let v: serde_json::Value = res.json().await.map_err(internal)?;
-    let url = v["url"]
-        .as_str()
-        .ok_or((StatusCode::BAD_GATEWAY, "no checkout url".to_string()))?;
-    Ok(Json(CheckoutOut { url: url.to_string() }))
-}
-
-/// Stripe webhook: verify the signature, then reconcile the user's plan/status.
-/// 501 when no webhook secret is configured.
-async fn billing_webhook(
-    State(st): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Result<StatusCode, (StatusCode, String)> {
-    let secret = env_nonempty("STRIPE_WEBHOOK_SECRET")
-        .ok_or((StatusCode::NOT_IMPLEMENTED, "webhook not configured".to_string()))?;
-    let sig = headers.get("stripe-signature").and_then(|v| v.to_str().ok()).unwrap_or("");
-    if !verify_stripe_sig(&secret, &body, sig) {
-        return Err((StatusCode::BAD_REQUEST, "invalid signature".to_string()));
-    }
-    let event: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|_| (StatusCode::BAD_REQUEST, "bad json".to_string()))?;
-    let obj = &event["data"]["object"];
-    match event["type"].as_str().unwrap_or("") {
-        "checkout.session.completed" => {
-            // Link our user → Stripe customer; the plan itself arrives via the
-            // subscription.* events that follow.
-            if let (Some(uid), Some(cust)) = (
-                obj["client_reference_id"].as_str().and_then(|s| uuid::Uuid::parse_str(s).ok()),
-                obj["customer"].as_str(),
-            ) {
-                let _ = sqlx::query(
-                    "update users set stripe_customer_id = $1,
-                            stripe_subscription_id = coalesce($2, stripe_subscription_id),
-                            subscription_status = 'active'
-                     where id = $3",
-                )
-                .bind(cust)
-                .bind(obj["subscription"].as_str())
-                .bind(uid)
-                .execute(&st.db)
-                .await;
-            }
-        }
-        "customer.subscription.created" | "customer.subscription.updated" => {
-            let price_id = obj["items"]["data"][0]["price"]["id"].as_str().unwrap_or("");
-            let plan = tier_by_price_id(price_id).map(|t| t.id).unwrap_or("free");
-            let _ = sqlx::query(
-                "update users set plan = $1, subscription_status = $2, stripe_subscription_id = $3
-                 where stripe_customer_id = $4",
-            )
-            .bind(plan)
-            .bind(obj["status"].as_str().unwrap_or("active"))
-            .bind(obj["id"].as_str())
-            .bind(obj["customer"].as_str().unwrap_or(""))
-            .execute(&st.db)
-            .await;
-        }
-        "customer.subscription.deleted" => {
-            let _ = sqlx::query(
-                "update users set plan = 'free', subscription_status = 'canceled'
-                 where stripe_customer_id = $1",
-            )
-            .bind(obj["customer"].as_str().unwrap_or(""))
-            .execute(&st.db)
-            .await;
-        }
-        _ => {}
-    }
-    Ok(StatusCode::OK)
-}
-
-/// Verify a Stripe `Stripe-Signature` header — scheme v1 is the HMAC-SHA256 of
-/// "{timestamp}.{raw body}" keyed by the webhook secret. Constant-time compare.
-fn verify_stripe_sig(secret: &str, payload: &[u8], header: &str) -> bool {
-    let (mut t, mut v1) = ("", "");
-    for part in header.split(',') {
-        if let Some(x) = part.strip_prefix("t=") {
-            t = x;
-        } else if let Some(x) = part.strip_prefix("v1=") {
-            v1 = x;
-        }
-    }
-    if t.is_empty() || v1.is_empty() {
-        return false;
-    }
-    let mut mac = match Hmac::<Sha256>::new_from_slice(secret.as_bytes()) {
-        Ok(m) => m,
-        Err(_) => return false,
-    };
-    mac.update(t.as_bytes());
-    mac.update(b".");
-    mac.update(payload);
-    ct_eq(hex_lower(&mac.finalize().into_bytes()).as_bytes(), v1.as_bytes())
-}
-
+/// Lowercase hex encoding — used by `hash_key` to fingerprint API keys.
 fn hex_lower(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -1984,18 +1733,6 @@ fn hex_lower(bytes: &[u8]) -> String {
         s.push(char::from_digit((b & 0xf) as u32, 16).unwrap());
     }
     s
-}
-
-/// Length-checked constant-time byte compare (no early return on mismatch).
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 async fn auth_supabase_user(
@@ -2183,31 +1920,6 @@ fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
 mod tests {
     use super::*;
     use std::time::Duration;
-
-    #[test]
-    fn stripe_sig_accepts_valid_rejects_tampered() {
-        let secret = "whsec_test";
-        let payload = br#"{"id":"evt_1","type":"checkout.session.completed"}"#;
-        let t = "1700000000";
-        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
-        mac.update(t.as_bytes());
-        mac.update(b".");
-        mac.update(payload);
-        let sig = hex_lower(&mac.finalize().into_bytes());
-        let header = format!("t={t},v1={sig}");
-
-        assert!(verify_stripe_sig(secret, payload, &header));
-        assert!(!verify_stripe_sig(secret, br#"{"id":"evt_evil"}"#, &header)); // tampered body
-        assert!(!verify_stripe_sig("whsec_wrong", payload, &header)); // wrong secret
-        assert!(!verify_stripe_sig(secret, payload, "garbage")); // malformed header
-    }
-
-    #[test]
-    fn tier_lookup_defaults_to_free() {
-        assert_eq!(tier_by_id("nonsense").id, "free");
-        assert_eq!(tier_by_id("pro").price_usd, 20.0);
-        assert!(tier_by_id("max").monthly_token_limit.is_none());
-    }
 
     #[test]
     fn rate_limiter_caps_burst_then_refills() {

@@ -2447,7 +2447,6 @@ dependencies = [
  "axum",
  "chrono",
  "chrono-tz",
- "hmac",
  "jsonwebtoken",
  "lambda_http",
  "reqwest",

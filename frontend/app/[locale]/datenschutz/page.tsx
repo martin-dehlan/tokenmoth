@@ -89,12 +89,6 @@ function En() {
         analytics take place. Legal basis: consent (Art. 6(1)(a) GDPR, § 25(1) TDDDG). You can
         withdraw consent at any time via <em>Cookie settings</em> in the footer.
       </p>
-      <h3>e) Payment data</h3>
-      <p>
-        For paid plans, payment data is processed by a payment provider. We do not store full payment
-        instrument data ourselves. Legal basis: performance of a contract (Art. 6(1)(b) GDPR).
-      </p>
-
       <h2>3. Cookies & local storage</h2>
       <p>
         Technically necessary cookies (e.g. to keep your Supabase login session) are set on the basis
@@ -186,13 +180,6 @@ function De() {
         Einwilligung (Art. 6 Abs. 1 lit. a DSGVO, § 25 Abs. 1 TDDDG). Du kannst die Einwilligung
         jederzeit über die <em>Cookie-Einstellungen</em> im Footer widerrufen.
       </p>
-      <h3>e) Zahlungsdaten</h3>
-      <p>
-        Bei kostenpflichtigen Plänen werden Zahlungsdaten durch einen Zahlungsdienstleister
-        verarbeitet. Wir speichern selbst keine vollständigen Zahlungsmittel-Daten. Rechtsgrundlage:
-        Vertragserfüllung (Art. 6 Abs. 1 lit. b DSGVO).
-      </p>
-
       <h2>3. Cookies & lokale Speicherung</h2>
       <p>
         Technisch notwendige Cookies (z. B. zur Aufrechterhaltung deiner Login-Sitzung über

@@ -56,10 +56,9 @@ function En() {
         The usage data you submit remains attributed to you. Processing and protection are governed by
         the <a href="/en/datenschutz">privacy policy</a>.
       </p>
-      <h2>7. Prices & payment</h2>
+      <h2>7. Prices</h2>
       <p>
-        Paid plans and their prices are shown transparently during checkout. For consumers, the{" "}
-        <a href="/en/widerruf">right of withdrawal</a> also applies.
+        {site.name} is provided free of charge. There are no paid plans and no payment is collected.
       </p>
       <h2>8. Liability</h2>
       <p>
@@ -69,8 +68,7 @@ function En() {
       </p>
       <h2>9. Term & termination</h2>
       <p>
-        The usage relationship can be ended at any time by deleting the account. For paid plans, the
-        terms stated during checkout apply.
+        The usage relationship can be ended at any time by deleting the account.
       </p>
       <h2>10. Changes to these terms</h2>
       <p>
@@ -124,10 +122,10 @@ function De() {
         Die von dir übermittelten Nutzungsdaten bleiben dir zugeordnet. Verarbeitung und Schutz
         regelt die <a href="/de/datenschutz">Datenschutzerklärung</a>.
       </p>
-      <h2>7. Preise & Zahlung</h2>
+      <h2>7. Preise</h2>
       <p>
-        Kostenpflichtige Tarife und deren Preise werden im Bestellprozess transparent ausgewiesen.
-        Für Verbraucher gilt zusätzlich die <a href="/de/widerruf">Widerrufsbelehrung</a>.
+        {site.name} wird kostenlos bereitgestellt. Es gibt keine kostenpflichtigen Tarife; es wird
+        keine Zahlung erhoben.
       </p>
       <h2>8. Haftung</h2>
       <p>
@@ -137,8 +135,7 @@ function De() {
       </p>
       <h2>9. Laufzeit & Kündigung</h2>
       <p>
-        Das Nutzungsverhältnis kann jederzeit durch Löschung des Kontos beendet werden. Bei
-        kostenpflichtigen Tarifen gelten die im Bestellprozess angegebenen Laufzeiten.
+        Das Nutzungsverhältnis kann jederzeit durch Löschung des Kontos beendet werden.
       </p>
       <h2>10. Änderungen der AGB</h2>
       <p>

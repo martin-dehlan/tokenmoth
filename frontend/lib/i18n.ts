@@ -17,7 +17,7 @@ export const localeLabel: Record<Locale, string> = {
 
 // Legal routes that exist under every locale (also used by the middleware
 // allowlist + bare-path redirect).
-export const legalSlugs = ["impressum", "datenschutz", "agb", "widerruf"] as const;
+export const legalSlugs = ["impressum", "datenschutz", "agb"] as const;
 
 // Pull the locale out of a pathname like `/de/impressum`; falls back to default.
 export function localeFromPath(pathname: string): Locale {

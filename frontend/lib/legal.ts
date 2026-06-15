@@ -22,6 +22,7 @@ export const site = {
   name: "TokenMoth",
   domain: "tokenmoth.com",
   url: "https://tokenmoth.com",
+  repo: "https://github.com/martin-dehlan/tokenmoth",
 } as const;
 
 /** Last substantive edit of the legal texts (manually bumped). */
@@ -68,12 +69,5 @@ export const subprocessors: Subprocessor[] = [
     region: "USA (nur clientseitig durch Nutzer:in selbst)",
     transfer: "kein Transfer durch TokenMoth",
     dpa: "keine Auftragsverarbeitung durch TokenMoth",
-  },
-  {
-    name: "Zahlungsdienstleister (Stripe)",
-    purpose: "Abwicklung kostenpflichtiger Pläne",
-    region: "USA / EU",
-    transfer: "SCC / EU-US Data Privacy Framework",
-    dpa: "AVV nach Art. 28 DSGVO (Stripe DPA)",
   },
 ];
