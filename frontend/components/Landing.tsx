@@ -79,7 +79,7 @@ export default function Landing() {
       </header>
 
       {/* the white instrument panel, floating on the stone desk */}
-      <main className="flex-1 grid place-items-center px-6">
+      <main className="flex-1 grid place-items-center px-6 py-10">
         <div className="w-full max-w-2xl rounded-surface border border-line bg-surface shadow-surface overflow-hidden">
           <section className="px-4 sm:px-8 pt-8 pb-7">
             <div className="text-[10px] uppercase tracking-label text-faint mb-3">
@@ -128,13 +128,17 @@ export default function Landing() {
               >
                 or use Google
               </button>
-              <Link
-                href="/data"
-                className="text-[10px] text-faint underline decoration-dotted underline-offset-2 hover:text-muted transition-colors"
-              >
-                transcripts stay local — see exactly what&apos;s sent →
-              </Link>
             </div>
+
+            <Link
+              href="/data"
+              className="mt-4 inline-flex items-center gap-1.5 text-[11px] text-faint hover:text-muted transition-colors"
+            >
+              <span aria-hidden>🔒</span>
+              <span className="underline decoration-dotted underline-offset-2">
+                transcripts stay local — see exactly what&apos;s sent
+              </span>
+            </Link>
 
             {err && <p className="mt-3 text-[11px] text-warn">{err}</p>}
           </section>

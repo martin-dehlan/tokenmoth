@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import posthog from "posthog-js";
 import OsSelect from "@/components/OsSelect";
@@ -26,7 +26,6 @@ export default function OnboardingFlow() {
   const [copyFailed, setCopyFailed] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
-  const [hasExistingKey, setHasExistingKey] = useState(false);
   const [waitedLong, setWaitedLong] = useState(false);
   const [method, setMethod] = useState<Method>("npm");
   const [os, setOs] = useState<Os>("macos");
@@ -69,31 +68,17 @@ export default function OnboardingFlow() {
     }
   }, []);
 
-  // On arrival: auto-generate a key if the user has none; else offer a button
-  // (the existing key's secret can't be re-shown, so a fresh one is needed).
+  // On arrival: always mint a fresh key and show the command immediately — no
+  // gate. A key's secret can't be re-shown, so even users with an existing key
+  // need a new one to copy; minting it for them removes a pointless click. The
+  // ref guards against React's double-invoke (and any remount) so one visit
+  // creates exactly one key. Failures (incl. 401) fall through to the "have-key"
+  // retry/sign-in surface via createKey().
+  const minted = useRef(false);
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch("/api/keys", { cache: "no-store" });
-        if (r.status === 401) {
-          setSessionExpired(true);
-          setErr("Your session expired — sign in to continue.");
-          setPhase("have-key");
-          return;
-        }
-        const keys = r.ok ? await r.json() : [];
-        const active = Array.isArray(keys) && keys.some((k: { active: boolean }) => k.active);
-        if (active) {
-          setHasExistingKey(true);
-          setPhase("have-key");
-        } else {
-          createKey();
-        }
-      } catch {
-        setErr(NET_ERR);
-        setPhase("have-key");
-      }
-    })();
+    if (minted.current) return;
+    minted.current = true;
+    createKey();
   }, [createKey]);
 
   // Once the command is shown, poll for the first session. After SLOW_MS,
@@ -160,23 +145,12 @@ export default function OnboardingFlow() {
               Sign in to continue →
             </Link>
           ) : (
-            <div className="flex flex-col items-start gap-2.5">
-              {hasExistingKey && !err && (
-                <p className="text-[12px] text-muted leading-relaxed max-w-md">
-                  You already have a key. Generate a fresh one to see the install command — or{" "}
-                  <Link href="/settings" className="underline hover:text-ink transition-colors">
-                    manage your keys
-                  </Link>
-                  .
-                </p>
-              )}
-              <button
-                className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:opacity-90 active:translate-y-px"
-                onClick={createKey}
-              >
-                {err ? "Try again" : hasExistingKey ? "Generate a fresh command" : "Generate my install command"}
-              </button>
-            </div>
+            <button
+              className="inline-flex items-center gap-2 rounded-btn bg-ink px-5 py-2.5 text-[14px] font-medium text-canvas shadow-btn transition-colors hover:opacity-90 active:translate-y-px"
+              onClick={createKey}
+            >
+              Try again
+            </button>
           )
         ) : (
           <>
