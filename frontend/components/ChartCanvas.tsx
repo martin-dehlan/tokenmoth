@@ -134,17 +134,19 @@ export default function ChartCanvas({
         )} ${y(0).toFixed(1)} Z`
       : "";
 
-  // Sample x labels by available width (~64px per label); always keep the last
-  // one and drop any sampled label that sits within a label-width of it. The
-  // last tick is end-anchored (grows leftward) while sampled ticks are
-  // middle-anchored, so a pixel guard — not a bucket-count guard — is what
-  // actually prevents the end-of-axis overlap (e.g. "06-19" into "06-20").
-  const LABEL_PX = 40; // approx width of a "MM-DD" label + breathing room
-  const maxLabels = Math.max(2, Math.floor(W / 64));
+  // Sample x labels into ~64px slots; always keep the first and last tick, and
+  // drop any sampled label sitting within a full slot of the last one. The last
+  // tick is end-anchored (text grows leftward) while sampled ticks are
+  // middle-anchored, so a neighbor even one daily bucket away (~60px at desktop
+  // width) still visually merges into it ("06-1906-20"). The guard must clear a
+  // whole label slot — not just a label-width — to separate them, so it reuses
+  // the same LABEL_SLOT that sizes the sampling budget.
+  const LABEL_SLOT = 64; // px reserved per x-axis label
+  const maxLabels = Math.max(2, Math.floor(W / LABEL_SLOT));
   const step = Math.max(1, Math.ceil(n / maxLabels));
   const xLabelIdx: number[] = [];
   for (let i = 0; i < n - 1; i++) {
-    if (i % step === 0 && x(n - 1) - x(i) >= LABEL_PX) xLabelIdx.push(i);
+    if (i % step === 0 && x(n - 1) - x(i) >= LABEL_SLOT) xLabelIdx.push(i);
   }
   if (n > 0) xLabelIdx.push(n - 1);
 
