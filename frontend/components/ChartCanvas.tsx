@@ -135,13 +135,18 @@ export default function ChartCanvas({
       : "";
 
   // Sample x labels by available width (~64px per label); always keep the last
-  // one and drop a sampled label that would crowd it.
+  // one and drop any sampled label that sits within a label-width of it. The
+  // last tick is end-anchored (grows leftward) while sampled ticks are
+  // middle-anchored, so a pixel guard — not a bucket-count guard — is what
+  // actually prevents the end-of-axis overlap (e.g. "06-19" into "06-20").
+  const LABEL_PX = 40; // approx width of a "MM-DD" label + breathing room
   const maxLabels = Math.max(2, Math.floor(W / 64));
   const step = Math.max(1, Math.ceil(n / maxLabels));
   const xLabelIdx: number[] = [];
-  for (let i = 0; i < n; i++) {
-    if (i === n - 1 || (i % step === 0 && n - 1 - i >= step / 2)) xLabelIdx.push(i);
+  for (let i = 0; i < n - 1; i++) {
+    if (i % step === 0 && x(n - 1) - x(i) >= LABEL_PX) xLabelIdx.push(i);
   }
+  if (n > 0) xLabelIdx.push(n - 1);
 
   // Peak callout text flips to anchor "end" when the spike sits near the right
   // edge so it never overflows the (possibly small) right pad.
