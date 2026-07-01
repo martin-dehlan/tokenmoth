@@ -182,6 +182,8 @@ async fn build_app() -> anyhow::Result<Router> {
         .route("/v1/telemetry", post(ingest))
         .route("/v1/repos", get(list_repos))
         .route("/v1/repos/:name/series", get(repo_series))
+        .route("/v1/repo-groups", get(list_repo_groups).post(create_repo_group))
+        .route("/v1/repo-groups/:group", axum::routing::delete(delete_repo_group))
         .route("/v1/series", get(account_series))
         .route("/v1/dashboard", get(dashboard))
         .route("/v1/sessions", get(list_sessions))
@@ -533,19 +535,21 @@ async fn list_repos(
     let rows: Vec<RepoRow> = sqlx::query_as(
         r#"
         select
-            repo,
-            count(*)::bigint                                   as sessions,
-            coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
-            coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
-            coalesce(sum(cache_read_input_tokens), 0)::bigint  as cache_read_tokens,
-            coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens,
-            coalesce(sum(hook_overhead_tokens), 0)::bigint     as hook_overhead_tokens,
-            max(ended_at)                                      as last_active
-        from token_logs
-        where user_id = $1
-          and ($2::timestamptz is null or ended_at >= $2)
-        group by repo
-        order by last_active desc
+            coalesce(a.group_name, t.repo)                       as repo,
+            count(*)::bigint                                     as sessions,
+            coalesce(sum(t.input_tokens), 0)::bigint            as input_tokens,
+            coalesce(sum(t.output_tokens), 0)::bigint           as output_tokens,
+            coalesce(sum(t.cache_read_input_tokens), 0)::bigint as cache_read_tokens,
+            coalesce(sum(t.cache_creation_input_tokens), 0)::bigint as cache_creation_tokens,
+            coalesce(sum(t.hook_overhead_tokens), 0)::bigint    as hook_overhead_tokens,
+            max(t.ended_at)                                     as last_active
+        from token_logs t
+        left join repo_aliases a
+               on a.user_id = t.user_id and a.repo = t.repo
+        where t.user_id = $1
+          and ($2::timestamptz is null or t.ended_at >= $2)
+        group by coalesce(a.group_name, t.repo)
+        order by max(t.ended_at) desc
         limit $3
         "#,
     )
@@ -690,16 +694,18 @@ async fn repo_series(
     let rows: Vec<SeriesRow> = sqlx::query_as(
         r#"
         select
-            date_trunc($4, ended_at at time zone $5) at time zone $5 as day,
+            date_trunc($4, t.ended_at at time zone $5) at time zone $5 as day,
             count(*)::bigint                                   as sessions,
-            coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
-            coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
-            coalesce(sum(cache_read_input_tokens), 0)::bigint  as cache_read_tokens,
-            coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens
-        from token_logs
-        where user_id = $1
-          and repo = $2
-          and ($3::timestamptz is null or ended_at >= $3)
+            coalesce(sum(t.input_tokens), 0)::bigint           as input_tokens,
+            coalesce(sum(t.output_tokens), 0)::bigint          as output_tokens,
+            coalesce(sum(t.cache_read_input_tokens), 0)::bigint as cache_read_tokens,
+            coalesce(sum(t.cache_creation_input_tokens), 0)::bigint as cache_creation_tokens
+        from token_logs t
+        left join repo_aliases a
+               on a.user_id = t.user_id and a.repo = t.repo
+        where t.user_id = $1
+          and coalesce(a.group_name, t.repo) = $2
+          and ($3::timestamptz is null or t.ended_at >= $3)
         group by day
         order by day asc
         "#,
@@ -735,6 +741,148 @@ async fn repo_series(
         .collect();
 
     Ok(Json(SeriesResponse { repo: name, since: since_label, points }))
+}
+
+// ---- /v1/repo-groups : manual repo → group mapping (#224) ------------------
+// Raw token_logs.repo is never mutated; a group is purely an alias layer applied
+// at query time. Both the web dashboard (JWT) and the `tokenmoth` CLI (api key)
+// drive these — see `auth_any`.
+
+#[derive(sqlx::FromRow)]
+struct AliasRow {
+    repo: String,
+    group_name: String,
+}
+
+#[derive(Serialize)]
+struct RepoGroupOut {
+    group: String,
+    members: Vec<String>,
+}
+
+/// `GET /v1/repo-groups` — every alias the caller has, folded by group name.
+async fn list_repo_groups(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<RepoGroupOut>>, (StatusCode, String)> {
+    let user_id = auth_any(&st, &headers).await?;
+    let rows: Vec<AliasRow> = sqlx::query_as(
+        "select repo, group_name from repo_aliases where user_id = $1 order by group_name, repo",
+    )
+    .bind(user_id)
+    .fetch_all(&st.db)
+    .await
+    .map_err(internal)?;
+
+    let mut groups: Vec<RepoGroupOut> = Vec::new();
+    for r in rows {
+        match groups.last_mut() {
+            Some(g) if g.group == r.group_name => g.members.push(r.repo),
+            _ => groups.push(RepoGroupOut { group: r.group_name, members: vec![r.repo] }),
+        }
+    }
+    Ok(Json(groups))
+}
+
+#[derive(Deserialize)]
+struct CreateGroupBody {
+    group: String,
+    repos: Vec<String>,
+}
+
+/// `POST /v1/repo-groups` — merge `repos` into `group`. Idempotent: re-merging the
+/// same set is a no-op (upsert on the (user_id, repo) primary key).
+async fn create_repo_group(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateGroupBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let user_id = auth_any(&st, &headers).await?;
+    let group = body.group.trim().to_string();
+    if group.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "group name is required".to_string()));
+    }
+    // Normalize + drop blanks; a repo cannot map to itself-as-a-different-group is
+    // fine, but a self-map (repo == group) is just a no-op alias we skip.
+    let repos: Vec<String> = body
+        .repos
+        .into_iter()
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty() && *r != group)
+        .collect();
+    if repos.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "at least one repo is required".to_string()));
+    }
+
+    // Guard against a 2-level chain: a repo that is itself an existing group name
+    // would orphan that group's members. Reject rather than silently flatten.
+    let clash: Option<String> = sqlx::query_scalar(
+        "select group_name from repo_aliases
+          where user_id = $1 and group_name = any($2) limit 1",
+    )
+    .bind(user_id)
+    .bind(&repos)
+    .fetch_optional(&st.db)
+    .await
+    .map_err(internal)?;
+    if let Some(c) = clash {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("`{c}` is already a group name; remove that group first"),
+        ));
+    }
+
+    sqlx::query(
+        "insert into repo_aliases (user_id, repo, group_name)
+         select $1, unnest($2::text[]), $3
+         on conflict (user_id, repo) do update set group_name = excluded.group_name",
+    )
+    .bind(user_id)
+    .bind(&repos)
+    .bind(&group)
+    .execute(&st.db)
+    .await
+    .map_err(internal)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /v1/repo-groups/:group` — unmerge: drop every alias for the group so
+/// its members split back to their raw names. With `?member=<repo>`, pull just one
+/// repo out of the group.
+#[derive(Deserialize)]
+struct DeleteGroupQuery {
+    member: Option<String>,
+}
+
+async fn delete_repo_group(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Path(group): Path<String>,
+    Query(q): Query<DeleteGroupQuery>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let user_id = auth_any(&st, &headers).await?;
+    let affected = match q.member.filter(|m| !m.is_empty()) {
+        Some(member) => sqlx::query(
+            "delete from repo_aliases where user_id = $1 and group_name = $2 and repo = $3",
+        )
+        .bind(user_id)
+        .bind(&group)
+        .bind(&member)
+        .execute(&st.db)
+        .await,
+        None => sqlx::query("delete from repo_aliases where user_id = $1 and group_name = $2")
+            .bind(user_id)
+            .bind(&group)
+            .execute(&st.db)
+            .await,
+    }
+    .map_err(internal)?;
+
+    if affected.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "no such group".to_string()));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ---- GET /v1/series : account-wide daily series (all repos) ----------------
@@ -1161,17 +1309,19 @@ async fn dashboard(
     // 1) per-repo rollups
     let repo_fut = sqlx::query_as::<_, RepoRow>(
         r#"
-        select repo,
+        select coalesce(a.group_name, t.repo)                   as repo,
                count(*)::bigint                                   as sessions,
-               coalesce(sum(input_tokens), 0)::bigint             as input_tokens,
-               coalesce(sum(output_tokens), 0)::bigint            as output_tokens,
-               coalesce(sum(cache_read_input_tokens), 0)::bigint  as cache_read_tokens,
-               coalesce(sum(cache_creation_input_tokens), 0)::bigint as cache_creation_tokens,
-               coalesce(sum(hook_overhead_tokens), 0)::bigint     as hook_overhead_tokens,
-               max(ended_at)                                      as last_active
-        from token_logs
-        where user_id = $1 and ($2::timestamptz is null or ended_at >= $2)
-        group by repo order by last_active desc limit 500
+               coalesce(sum(t.input_tokens), 0)::bigint           as input_tokens,
+               coalesce(sum(t.output_tokens), 0)::bigint          as output_tokens,
+               coalesce(sum(t.cache_read_input_tokens), 0)::bigint as cache_read_tokens,
+               coalesce(sum(t.cache_creation_input_tokens), 0)::bigint as cache_creation_tokens,
+               coalesce(sum(t.hook_overhead_tokens), 0)::bigint   as hook_overhead_tokens,
+               max(t.ended_at)                                    as last_active
+        from token_logs t
+        left join repo_aliases a
+               on a.user_id = t.user_id and a.repo = t.repo
+        where t.user_id = $1 and ($2::timestamptz is null or t.ended_at >= $2)
+        group by coalesce(a.group_name, t.repo) order by max(t.ended_at) desc limit 500
         "#,
     )
     .bind(user_id).bind(cutoff).fetch_all(&st.db);
@@ -1428,17 +1578,19 @@ async fn list_sessions(
 
     let rows: Vec<SessionRow> = sqlx::query_as(
         r#"
-        select session_id, repo, model,
-               input_tokens, output_tokens,
-               cache_read_input_tokens as cache_read_tokens,
-               cache_creation_input_tokens as cache_creation_tokens,
-               hook_overhead_tokens, hook_overhead_breakdown, mcp_servers, mcp_calls,
-               baseline_tokens, turn_count, ended_at, source
-        from token_logs
-        where user_id = $1
-          and ($2::timestamptz is null or ended_at >= $2)
-          and ($3::text is null or repo = $3)
-        order by ended_at desc
+        select t.session_id, t.repo, t.model,
+               t.input_tokens, t.output_tokens,
+               t.cache_read_input_tokens as cache_read_tokens,
+               t.cache_creation_input_tokens as cache_creation_tokens,
+               t.hook_overhead_tokens, t.hook_overhead_breakdown, t.mcp_servers, t.mcp_calls,
+               t.baseline_tokens, t.turn_count, t.ended_at, t.source
+        from token_logs t
+        left join repo_aliases a
+               on a.user_id = t.user_id and a.repo = t.repo
+        where t.user_id = $1
+          and ($2::timestamptz is null or t.ended_at >= $2)
+          and ($3::text is null or coalesce(a.group_name, t.repo) = $3)
+        order by t.ended_at desc
         limit 200
         "#,
     )
@@ -1846,6 +1998,21 @@ async fn get_or_create_user(
     .fetch_one(db)
     .await?;
     Ok(id)
+}
+
+/// Resolve the caller via EITHER auth scheme: a Supabase JWT (web dashboard) or
+/// a Bearer api key (the `tokenmoth` CLI). Both arrive as `Authorization: Bearer
+/// <token>`; we try the JWT first (a CLI key fails JWT header decode cheaply) and
+/// fall back to the api-key table. Used by endpoints both front-ends drive, e.g.
+/// repo grouping (#224).
+async fn auth_any(
+    st: &AppState,
+    headers: &HeaderMap,
+) -> Result<uuid::Uuid, (StatusCode, String)> {
+    if let Ok((uid, _)) = auth_supabase_user(st, headers).await {
+        return Ok(uid);
+    }
+    auth_user(&st.db, headers).await
 }
 
 /// Shared Bearer-key → user_id resolution.
