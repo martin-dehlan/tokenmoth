@@ -79,6 +79,47 @@ export async function fetchRepos(accessToken: string, since = "30d"): Promise<Re
   }
 }
 
+// ---- repo grouping / manual mapping (#224) --------------------------------
+// A group folds several raw repos (split because the same project lives under
+// different git basenames) into one display row. Raw rows are never mutated —
+// grouping is an alias layer applied server-side at query time.
+
+export type RepoGroup = { group: string; members: string[] };
+
+// Server-side (SSR) read with the user's JWT — used to label/expand groups.
+export async function fetchRepoGroups(accessToken: string): Promise<RepoGroup[]> {
+  if (!accessToken) return [];
+  try {
+    const res = await fetch(`${API_URL}/v1/repo-groups`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    return (await res.json()) as RepoGroup[];
+  } catch {
+    return [];
+  }
+}
+
+// Client-side mutations hit the same-origin route handlers (cookie auth), so no
+// token is needed in the browser. They throw on failure with the server message.
+export async function mergeRepoGroup(group: string, repos: string[]): Promise<void> {
+  const res = await fetch(`/api/repo-groups`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ group, repos }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `merge failed (${res.status})`);
+}
+
+export async function unmergeRepoGroup(group: string, member?: string): Promise<void> {
+  const qs = member ? `?member=${encodeURIComponent(member)}` : "";
+  const res = await fetch(`/api/repo-groups/${encodeURIComponent(group)}${qs}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error((await res.text()) || `unmerge failed (${res.status})`);
+}
+
 // ---- presentation helpers -------------------------------------------------
 
 export type Load = "low" | "mid" | "high" | "tripped";

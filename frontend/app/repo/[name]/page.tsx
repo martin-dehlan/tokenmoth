@@ -3,7 +3,8 @@ import TopRail from "@/components/TopRail";
 import AnnotatedChart from "@/components/AnnotatedChart";
 import SessionList from "@/components/SessionList";
 import RevealOnView from "@/components/RevealOnView";
-import { fetchRepoSeries, fetchSessions, fmtTokens, fmtChartLabel, padSeriesToWindow, distinctDays } from "@/lib/data";
+import GroupControls from "@/components/GroupControls";
+import { fetchRepoSeries, fetchSessions, fetchRepoGroups, fmtTokens, fmtChartLabel, padSeriesToWindow, distinctDays } from "@/lib/data";
 import { PAGE_MAIN, WINDOWS } from "@/lib/ui";
 import { createClient } from "@/lib/supabase/server";
 import { getTimezone } from "@/lib/tz";
@@ -29,11 +30,14 @@ export default async function RepoDetail({
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  const [{ points, source, error }, sessions] = await Promise.all([
+  const [{ points, source, error }, sessions, groups] = await Promise.all([
     fetchRepoSeries(session?.access_token ?? "", name, since, tz),
     fetchSessions(session?.access_token ?? "", since, name),
+    fetchRepoGroups(session?.access_token ?? ""),
   ]);
   const live = source === "live";
+  // If this repo is actually a group, surface its members + unmerge controls.
+  const group = groups.find((g) => g.group === name);
 
   const sum = points.reduce(
     (a, p) => ({
@@ -78,6 +82,12 @@ export default async function RepoDetail({
               </Link>
               <span className="font-mono text-[13px] text-faint min-w-0 break-all">/{name}</span>
             </div>
+
+            {group && (
+              <div className="mb-5">
+                <GroupControls group={group.group} members={group.members} />
+              </div>
+            )}
 
             <div className="flex flex-col lg:flex-row lg:items-end gap-x-12 gap-y-6">
               <div className="shrink-0">

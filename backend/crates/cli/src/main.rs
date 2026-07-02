@@ -104,6 +104,51 @@ enum Cmd {
         #[arg(long, default_value = DEFAULT_API)]
         api_url: String,
     },
+    /// Merge split-detected repos into one display group, or split them back (#224).
+    /// A repo is identified by its git basename, so the same project under different
+    /// directory names (e.g. `tokenmoth` and `token-moth`) shows as separate rows.
+    /// Grouping is server-side: it folds existing history and applies on every machine.
+    Group {
+        #[command(subcommand)]
+        action: GroupCmd,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum GroupCmd {
+    /// List your repo groups and their members.
+    List {
+        #[arg(long)]
+        key: Option<String>,
+        #[arg(long, default_value = DEFAULT_API)]
+        api_url: String,
+    },
+    /// Merge one or more repos into a group. Idempotent.
+    /// e.g. `tokenmoth group add token-moth TokenMoth --as tokenmoth`
+    Add {
+        /// Raw repo names (git basenames) to fold into the group.
+        #[arg(required = true)]
+        repos: Vec<String>,
+        /// Canonical display name the repos are merged under.
+        #[arg(long = "as", value_name = "GROUP")]
+        group: String,
+        #[arg(long)]
+        key: Option<String>,
+        #[arg(long, default_value = DEFAULT_API)]
+        api_url: String,
+    },
+    /// Unmerge a group (split members back), or pull one repo out with --member.
+    Rm {
+        /// Group name to remove.
+        group: String,
+        /// Remove only this one repo from the group instead of the whole group.
+        #[arg(long)]
+        member: Option<String>,
+        #[arg(long)]
+        key: Option<String>,
+        #[arg(long, default_value = DEFAULT_API)]
+        api_url: String,
+    },
 }
 
 fn main() {
@@ -126,6 +171,7 @@ fn main() {
             cmd_backfill(key, api_url, *dry_run, repo.as_deref(), since.as_deref(), *yes, *full)
         }
         Cmd::Mcp { key, api_url } => cmd_mcp(key, api_url),
+        Cmd::Group { action } => cmd_group(action),
     };
     if let Err(e) = r {
         eprintln!("tokenmoth: {e}");
@@ -515,6 +561,104 @@ fn post_telemetry(
         .json(body)
         .send()?;
     Ok(res.status().is_success())
+}
+
+/// Drive the server-side repo grouping API (#224). These are human/script
+/// commands (not the hook), so a missing key or a non-2xx response is a hard
+/// error — `main` turns the Err into a non-zero exit.
+fn cmd_group(action: &GroupCmd) -> anyhow::Result<()> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+
+    match action {
+        GroupCmd::List { key, api_url } => {
+            let key = need_key(key.as_deref())?;
+            let res = client
+                .get(format!("{}/v1/repo-groups", api_url.trim_end_matches('/')))
+                .bearer_auth(&key)
+                .send()?;
+            let res = check(res)?;
+            let groups: Vec<RepoGroup> = res.json()?;
+            if groups.is_empty() {
+                println!("no repo groups yet — create one with `tokenmoth group add <repos>... --as <group>`");
+            } else {
+                for g in &groups {
+                    println!("{}  ←  {}", g.group, g.members.join(", "));
+                }
+            }
+            Ok(())
+        }
+        GroupCmd::Add { repos, group, key, api_url } => {
+            let key = need_key(key.as_deref())?;
+            let body = serde_json::json!({ "group": group, "repos": repos });
+            let res = client
+                .post(format!("{}/v1/repo-groups", api_url.trim_end_matches('/')))
+                .bearer_auth(&key)
+                .json(&body)
+                .send()?;
+            check(res)?;
+            println!("merged {} repo(s) into `{}`", repos.len(), group);
+            Ok(())
+        }
+        GroupCmd::Rm { group, member, key, api_url } => {
+            let key = need_key(key.as_deref())?;
+            let mut req = client
+                .delete(format!(
+                    "{}/v1/repo-groups/{}",
+                    api_url.trim_end_matches('/'),
+                    encode_segment(group)
+                ))
+                .bearer_auth(&key);
+            if let Some(m) = member.as_deref().filter(|m| !m.is_empty()) {
+                req = req.query(&[("member", m)]);
+            }
+            check(req.send()?)?;
+            match member.as_deref().filter(|m| !m.is_empty()) {
+                Some(m) => println!("removed `{m}` from group `{group}`"),
+                None => println!("unmerged group `{group}`"),
+            }
+            Ok(())
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct RepoGroup {
+    group: String,
+    members: Vec<String>,
+}
+
+/// Resolve the api key (flag → env → credentials) or fail with a clear message.
+fn need_key(flag: Option<&str>) -> anyhow::Result<String> {
+    resolve_key(flag).ok_or_else(|| {
+        anyhow::anyhow!("no API key — pass --key, set TOKENMOTH_API_KEY, or run `tokenmoth setup`")
+    })
+}
+
+/// Turn a non-2xx response into an error carrying the server's message.
+fn check(res: reqwest::blocking::Response) -> anyhow::Result<reqwest::blocking::Response> {
+    if res.status().is_success() {
+        return Ok(res);
+    }
+    let status = res.status();
+    let msg = res.text().unwrap_or_default();
+    anyhow::bail!("server returned {status}: {}", msg.trim());
+}
+
+/// Percent-encode a single URL path segment (group names are basenames, but may
+/// contain spaces or other reserved characters).
+fn encode_segment(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 /// One-time backfill: re-ingest every local transcript so historical sessions
