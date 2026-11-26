@@ -144,9 +144,9 @@ tokenmoth setup --key <your-key> --api-url https://api.tokenmoth.com
 ```
 
 Installers download the right binary for your OS/arch (macOS + Linux arm64/x64,
-Windows x64) from the branded dist host (`get.tokenmoth.com`, CloudFront → S3;
-see [#124](https://github.com/martin-dehlan/tokenmoth/issues/124)), with the raw
-S3 bucket as a transitional fallback. Build + publish: `.github/workflows/release.yml`.
+Windows x64) from [GitHub Releases](https://github.com/martin-dehlan/tokenmoth/releases)
+and verify its SHA-256 before installing. `get.tokenmoth.com` only redirects there.
+Build + publish: `.github/workflows/release.yml`.
 npm wrapper lives in [`npm/`](./npm).
 
 **From source:**

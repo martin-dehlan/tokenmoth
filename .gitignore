@@ -10,6 +10,7 @@ target/
 # Env / secrets
 .env
 .env.local
+.env.tools
 *.local.env
 
 # Node / Next.js
@@ -39,3 +40,6 @@ yarn-error.log*
 /docs/demo/tokenmoth-carousel.pdf
 /docs/demo/linkedin-post.txt
 /docs/demo/build_carousel.py
+
+# Vercel CLI link
+.vercel

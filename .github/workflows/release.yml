@@ -1,30 +1,19 @@
 name: release
 
-# Reproducible CLI build + publish to the public S3 distribution bucket.
+# Reproducible CLI build + publish to GitHub Releases.
 # MANUAL trigger (Actions tab → Run workflow): pass an existing git tag; the
-# build checks out that immutable tag and publishes tokenmoth-<target>.tar.gz
-# to s3://tokenmoth-dist/ via OIDC (no long-lived AWS keys).
+# build checks out that immutable tag and attaches tokenmoth-<target>.tar.gz
+# (+ .sha256 sidecar) to the GitHub Release for that tag. get.tokenmoth.com
+# redirects the legacy dist paths onto these assets (frontend/next.config.mjs).
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Git tag to build + publish (must already exist, e.g. cli-v0.1.1)"
+        description: "Git tag to build + publish (must already exist, e.g. cli-v0.1.5)"
         required: true
 
-# id-token: write is required for AWS OIDC role assumption.
 permissions:
   contents: read
-  id-token: write
-
-env:
-  AWS_REGION: eu-central-1
-  S3_BUCKET: tokenmoth-dist
-  # OIDC role scoped to s3:PutObject for this repo. NOTE: the role policy must
-  # allow BOTH tokenmoth-dist/tokenmoth-*.tar.gz* (latest keys) AND
-  # tokenmoth-dist/releases/* (versioned keys).
-  # Set as a repo variable (Settings > Secrets and variables > Actions > Variables):
-  #   AWS_ROLE_ARN = arn:aws:iam::<account-id>:role/tokenmoth-ci-s3-publish
-  ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
 
 jobs:
   build:
@@ -95,32 +84,39 @@ jobs:
             shasum -a 256 "tokenmoth-${{ matrix.target }}.tar.gz" | awk '{print $1}' > "tokenmoth-${{ matrix.target }}.tar.gz.sha256"
           fi
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/upload-artifact@v4
         with:
-          role-to-assume: ${{ env.ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          name: tokenmoth-${{ matrix.target }}
+          path: tokenmoth-${{ matrix.target }}.tar.gz*
+          if-no-files-found: error
 
-      - name: Publish to S3
-        shell: bash
+  # ── GitHub Release ───────────────────────────────────────────────────────
+  # One job attaches every target's artifacts, so a release is never left
+  # half-populated by a single failed matrix leg. Marked "latest" so the
+  # installers' releases/latest/download/<file> URLs resolve to it.
+  release:
+    name: publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
         run: |
-          tag="${{ inputs.tag }}"; ver="${tag#cli-v}"
-          for f in "tokenmoth-${{ matrix.target }}.tar.gz" "tokenmoth-${{ matrix.target }}.tar.gz.sha256"; do
-            # Versioned key — immutable, never rewritten, so cache forever.
-            # npm's postinstall fetches this path (pinned to its own version).
-            aws s3 cp "$f" \
-              "s3://${{ env.S3_BUCKET }}/releases/v${ver}/${f}" \
-              --region "${{ env.AWS_REGION }}" \
-              --cache-control "public, max-age=31536000, immutable"
-            # "Latest" key (back-compat for the curl|sh installers) — short
-            # cache-control so a new release propagates through CloudFront
-            # within minutes (same URL each release). CloudFront's
-            # CachingOptimized policy honors these origin headers.
-            aws s3 cp "$f" \
-              "s3://${{ env.S3_BUCKET }}/${f}" \
-              --region "${{ env.AWS_REGION }}" \
-              --cache-control "public, max-age=300, must-revalidate"
-          done
+          ls -l dist
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --latest               --title "tokenmoth CLI ${TAG#cli-v}" --generate-notes
+          fi
+          gh release upload "$TAG" dist/* --clobber
+          gh release edit "$TAG" --latest
 
   # ── npm channel ──────────────────────────────────────────────────────────
   # `npm i -g tokenmoth` / `npx tokenmoth`. Highest-reach path for the Claude
@@ -128,7 +124,7 @@ jobs:
   # binary — its postinstall downloads the artifacts the build job just pushed.
   publish-npm:
     name: publish npm
-    needs: build
+    needs: release
     runs-on: ubuntu-latest
     if: ${{ vars.PUBLISH_NPM == 'true' }}
     steps:

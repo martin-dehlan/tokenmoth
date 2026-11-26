@@ -14,7 +14,7 @@ type Key = {
 type Created = { id: string; key: string; label: string | null };
 
 const SETUP_API_URL = process.env.NEXT_PUBLIC_TOKENMOTH_API_URL ?? "http://localhost:8080";
-const INSTALL_CMD = "curl -fsSL https://tokenmoth-dist.s3.eu-central-1.amazonaws.com/install.sh | sh";
+const INSTALL_CMD = "curl -fsSL https://get.tokenmoth.com/install.sh | sh";
 
 export default function KeyManager() {
   const [keys, setKeys] = useState<Key[]>([]);
