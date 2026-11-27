@@ -12,6 +12,7 @@ target/
 .env.local
 .env.tools
 *.local.env
+*.local.md
 
 # Node / Next.js
 node_modules/
