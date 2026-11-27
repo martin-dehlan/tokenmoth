@@ -190,7 +190,7 @@ Light, editorial "notebook" surface (`--canvas #fbfbfa`) with near-black ink
 Self-host anywhere — nothing here is platform-specific:
 
 - **API** — a single static Rust binary + Postgres, so any container or VM host works
-  (Fly.io, Railway, a VPS, or AWS as shown below).
+  (Render as shown below, Fly.io, Railway, a VPS, …).
 - **Frontend** — a standard Next.js app: any Node host, or a static export behind your CDN.
 
 ## Status
@@ -211,36 +211,18 @@ git config core.hooksPath .githooks   # enable the pre-commit hook in this clone
 - **CI** (`.github/workflows/gitleaks.yml`) re-scans every push/PR as a backstop.
 - All `.env` / `.env.local` files are gitignored — keep real keys there, never in tracked files.
 
-## Deploy (AWS Lambda + Supabase) — scale-to-zero
+## Deploy (hosted tokenmoth.com)
 
-Hosted on **AWS**: Rust API on **Lambda** (arm64, behind a public
-**API Gateway HTTP API**), Postgres + Auth on **Supabase**, frontend on **AWS Amplify**.
-Idle cost ≈ €0 (pay-per-request). All resources tagged `Project=tokenmoth`.
+The hosted instance runs the API as a Docker image on **Render** (Frankfurt), the
+dashboard on **Vercel**, Postgres + Auth on **Supabase** (eu-west-1), and CLI binaries
+on **GitHub Releases**. Every deploy goes through the CLI or API:
 
 ```bash
-# 1. create the runtime secret (placeholder), then POPULATE it yourself
-scripts/deploy-aws.sh secret
-aws secretsmanager put-secret-value --secret-id tokenmoth/prod --region eu-central-1 \
-  --secret-string '{
-    "DATABASE_URL": "postgresql://postgres.<ref>:<db-pw>@aws-0-<region>.pooler.supabase.com:5432/postgres",
-    "SUPABASE_JWT_SECRET": "<Supabase → Settings → JWT>",
-    "TOKENMOTH_ADMIN_TOKEN": "<openssl rand -hex 24>"
-  }'
-
-# 2. build the arm64 Lambda + deploy behind API Gateway (env injected from the secret)
-cd backend && cargo lambda build --release --arm64 --features lambda -p tokenmoth-api && cd ..
-scripts/deploy-lambda.sh        # prints the public API URL
-
-# 3. point the CLI hook at the cloud
-tokenmoth setup --key tm_user_123 --api-url https://<api-id>.execute-api.eu-central-1.amazonaws.com
+scripts/deploy-api.sh   # build amd64 image → GHCR → trigger Render deploy (runs migrations)
+scripts/deploy-web.sh   # vercel deploy --prod of frontend/
 ```
 
-Gotchas (codified in `scripts/deploy-lambda.sh`): use the Supabase **session pooler
-(:5432)** — the transaction pooler (6543) breaks sqlx prepared statements; we front the
-Lambda with **API Gateway** (Function URLs can be disabled by org SCPs and give a less
-stable endpoint); the Lambda entrypoint is feature-gated (`--features lambda`),
-local/compose stays `axum::serve`.
-
-Secrets live **only** in AWS Secrets Manager (`tokenmoth/prod`), operator-set — never in
-the repo. **Project isolation:** everything is tagged `Project=tokenmoth`, so a
-resource-tag IAM condition can scope access per teammate.
+Use the Supabase **session pooler (:5432)** for `DATABASE_URL`. Secrets live only in
+gitignored `.env` / `.env.tools` and in each platform's env settings, never in the
+repo. [`docs/RUNBOOK.md`](docs/RUNBOOK.md) covers the CLI release, DNS and moving to
+new accounts.

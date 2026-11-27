@@ -32,8 +32,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 jsonwebtoken = "9"
 sha2 = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-lambda_http = { version = "0.13", optional = true }
 
-[features]
-# Build the AWS Lambda entrypoint instead of the long-running HTTP server.
-lambda = ["dep:lambda_http"]

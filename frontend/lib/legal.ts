@@ -26,7 +26,7 @@ export const site = {
 } as const;
 
 /** Last substantive edit of the legal texts (manually bumped). */
-export const lastUpdated = "2026-06-14";
+export const lastUpdated = "2026-11-27";
 
 export type Subprocessor = {
   name: string;
@@ -48,12 +48,26 @@ export const subprocessors: Subprocessor[] = [
     dpa: "AVV nach Art. 28 DSGVO (Supabase DPA)",
   },
   {
-    name: "Amazon Web Services (AWS)",
+    name: "Render",
+    purpose: "Hosting der API (api.tokenmoth.com), Server-Logs",
+    region: "EU (Frankfurt)",
+    transfer: "Verarbeitung in EU-Region; US-Anbieter — SCC (Render DPA)",
+    dpa: "AVV nach Art. 28 DSGVO (Render DPA)",
+  },
+  {
+    name: "Vercel",
     purpose:
-      "Hosting der Web-App (Amplify) und API (App Runner/Lambda), Server-Logs, Software-Downloads (S3/CloudFront)",
-    region: "EU (Frankfurt, eu-central-1)",
-    transfer: "Verarbeitung in EU-Region; SCC (AWS DPA)",
-    dpa: "AVV nach Art. 28 DSGVO (AWS DPA)",
+      "Hosting der Web-App (tokenmoth.com, app.tokenmoth.com) und Weiterleitung der Software-Downloads (get.tokenmoth.com), Server-Logs",
+    region: "Weltweites Edge-Netzwerk; Unternehmenssitz USA",
+    transfer: "EU-US Data Privacy Framework; SCC (Vercel DPA)",
+    dpa: "AVV nach Art. 28 DSGVO (Vercel DPA)",
+  },
+  {
+    name: "GitHub (Microsoft)",
+    purpose: "Bereitstellung der CLI-Downloads (GitHub Releases) und Install-Skripte",
+    region: "USA / weltweites CDN",
+    transfer: "EU-US Data Privacy Framework; SCC",
+    dpa: "GitHub Data Protection Agreement",
   },
   {
     name: "PostHog",

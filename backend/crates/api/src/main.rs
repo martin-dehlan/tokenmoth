@@ -127,18 +127,17 @@ fn init_tracing() {
 }
 
 /// Build the fully-wired router. DB pool has the prepared-statement cache OFF so
-/// it works behind Supabase's transaction pooler (pgBouncer) — required for the
-/// Lambda/serverless deploy. Runs migrations + optional bootstrap.
+/// it also works behind Supabase's poolers (pgBouncer). Runs migrations +
+/// optional bootstrap.
 async fn build_app() -> anyhow::Result<Router> {
     use sqlx::postgres::PgConnectOptions;
     use std::str::FromStr;
 
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL not set");
     let connect_opts = PgConnectOptions::from_str(&db_url)?.statement_cache_capacity(0);
-    // Supabase session pooler caps total clients at 15. On Lambda, many warm/
-    // concurrent containers each holding a pool exhausts that → EMAXCONNSESSION.
-    // Keep each container small and release idle connections fast so slots recycle;
-    // a Lambda reserved-concurrency cap (deploy-lambda.sh) hard-bounds containers.
+    // Supabase session pooler caps total clients at 15 → EMAXCONNSESSION when
+    // exceeded. Keep the pool small (override with TOKENMOTH_DB_MAX_CONN) and
+    // release idle connections fast so slots recycle.
     let max_conn: u32 = std::env::var("TOKENMOTH_DB_MAX_CONN")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -201,8 +200,7 @@ async fn build_app() -> anyhow::Result<Router> {
         .with_state(state))
 }
 
-/// Local / container entrypoint — long-running HTTP server.
-#[cfg(not(feature = "lambda"))]
+/// Long-running HTTP server (local, docker-compose, Render).
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     init_tracing();
@@ -214,17 +212,6 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
-}
-
-/// AWS Lambda entrypoint (scale-to-zero) — built with `--features lambda`.
-#[cfg(feature = "lambda")]
-#[tokio::main]
-async fn main() -> Result<(), lambda_http::Error> {
-    init_tracing();
-    let app = build_app()
-        .await
-        .map_err(|e| lambda_http::Error::from(e.to_string()))?;
-    lambda_http::run(app).await
 }
 
 /// Idempotently ensure a user + API key exist (single-user bootstrap).
@@ -1252,8 +1239,8 @@ async fn trends(
 }
 
 // ---- GET /v1/dashboard : repos + series + models + trends in ONE response --
-// (#65) Collapses the dashboard's 4 parallel calls into one request → one Lambda
-// invocation → one DB connection (queries run sequentially on st.db), so it stays
+// (#65) Collapses the dashboard's 4 parallel calls into one request → one DB
+// connection (queries run sequentially on st.db), so it stays
 // well under the Supabase session-pooler 15-client cap.
 
 #[derive(sqlx::FromRow, Serialize)]

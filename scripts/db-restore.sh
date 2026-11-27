@@ -8,8 +8,8 @@
 # The dump is created with --clean (db-dump.sh), so restoring DROPS existing
 # objects in the target. To guard against fat-fingered cutovers:
 #   * an interactive y/N confirmation is required (skip with --force, e.g. CI);
-#   * if the target host equals the PROD host (DATABASE_URL in Secrets Manager
-#     tokenmoth/prod, same lookup as db-dump.sh), --force is mandatory.
+#   * if the target host equals the PROD host (DATABASE_URL from the
+#     environment or the repo-root .env), --force is mandatory.
 set -eu
 
 FORCE=0
@@ -30,13 +30,13 @@ url_host() {
 }
 TARGET_HOST="$(url_host "$TOKENMOTH_TARGET_DB_URL")"
 
-# Resolve the prod host the same way db-dump.sh does (best-effort: no AWS
-# creds / no secret access just skips the prod check, it never blocks dev use).
-PROD_URL="$(aws secretsmanager get-secret-value \
-  --secret-id tokenmoth/prod --region "${AWS_REGION:-eu-central-1}" \
-  --query SecretString --output text 2>/dev/null \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin)["DATABASE_URL"])' 2>/dev/null \
-  || true)"
+# Resolve the prod host from DATABASE_URL (env, else repo-root .env). Best-effort:
+# if neither is available the prod check is skipped; it never blocks dev use.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROD_URL="${DATABASE_URL:-}"
+if [ -z "$PROD_URL" ] && [ -f "$ROOT/.env" ]; then
+  PROD_URL="$(set -a; . "$ROOT/.env" >/dev/null 2>&1; printf '%s' "${DATABASE_URL:-}")"
+fi
 if [ -n "$PROD_URL" ]; then
   PROD_HOST="$(url_host "$PROD_URL")"
   if [ "$TARGET_HOST" = "$PROD_HOST" ] && [ "$FORCE" -ne 1 ]; then

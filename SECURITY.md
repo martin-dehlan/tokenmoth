@@ -23,12 +23,13 @@ any public disclosure.
 In scope: the Rust ingestion API (`backend/crates/api`), the CLI
 (`backend/crates/cli`), and the Next.js dashboard (`frontend/`).
 
-Out of scope: third-party services we depend on (Supabase, Vercel, Stripe,
+Out of scope: third-party services we depend on (Supabase, Vercel, Render,
 PostHog) — report those to the respective vendor.
 
 ## Handling secrets
 
 This repository must never contain real secrets. All credentials are supplied at
-runtime via environment variables / AWS Secrets Manager. A `gitleaks` pre-commit
+runtime via environment variables (gitignored `.env` files locally, each
+hosting platform's env settings in production). A `gitleaks` pre-commit
 hook and CI workflow scan every change. If you find a committed secret, treat it
 as a vulnerability and report it privately as above.
