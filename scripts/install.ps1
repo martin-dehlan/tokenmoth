@@ -1,18 +1,15 @@
 #!/usr/bin/env pwsh
 # TokenMoth CLI installer for Windows (PowerShell). Downloads a prebuilt
-# tokenmoth.exe from the public distribution host and puts it on PATH
-# (repo stays private; no Rust needed). Mirror of install.sh for Unix.
+# tokenmoth.exe from the latest GitHub Release and puts it on PATH
+# (no Rust needed). Mirror of install.sh for Unix.
 #
 #   irm https://get.tokenmoth.com/install.ps1 | iex
 #
 # Env: TOKENMOTH_BIN_DIR  (default %LOCALAPPDATA%\tokenmoth)
-#      TOKENMOTH_DIST_BASE (override the dist host)
+#      TOKENMOTH_DIST_BASE (override the download base, e.g. a self-hosted mirror)
 $ErrorActionPreference = 'Stop'
 
-# Branded dist domain (CloudFront -> S3, see issue #124); raw S3 is the
-# transitional fallback if the branded host is unreachable.
-$Base     = if ($env:TOKENMOTH_DIST_BASE) { $env:TOKENMOTH_DIST_BASE } else { 'https://get.tokenmoth.com' }
-$Fallback = 'https://tokenmoth-dist.s3.eu-central-1.amazonaws.com'
+$Base     = if ($env:TOKENMOTH_DIST_BASE) { $env:TOKENMOTH_DIST_BASE } else { 'https://github.com/martin-dehlan/tokenmoth/releases/latest/download' }
 $BinDir   = if ($env:TOKENMOTH_BIN_DIR) { $env:TOKENMOTH_BIN_DIR } else { Join-Path $env:LOCALAPPDATA 'tokenmoth' }
 
 switch ($env:PROCESSOR_ARCHITECTURE) {
@@ -31,14 +28,8 @@ New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 try {
   $archive = Join-Path $tmp 'tokenmoth.tar.gz'
   $shaFile = Join-Path $tmp 'tokenmoth.tar.gz.sha256'
-  try {
-    Invoke-WebRequest -Uri "$Base/tokenmoth-$target.tar.gz" -OutFile $archive -UseBasicParsing
-    Invoke-WebRequest -Uri "$Base/tokenmoth-$target.tar.gz.sha256" -OutFile $shaFile -UseBasicParsing
-  } catch {
-    Write-Host "  $Base failed ($($_.Exception.Message)) - falling back to S3..."
-    Invoke-WebRequest -Uri "$Fallback/tokenmoth-$target.tar.gz" -OutFile $archive -UseBasicParsing
-    Invoke-WebRequest -Uri "$Fallback/tokenmoth-$target.tar.gz.sha256" -OutFile $shaFile -UseBasicParsing
-  }
+  Invoke-WebRequest -Uri "$Base/tokenmoth-$target.tar.gz" -OutFile $archive -UseBasicParsing
+  Invoke-WebRequest -Uri "$Base/tokenmoth-$target.tar.gz.sha256" -OutFile $shaFile -UseBasicParsing
 
   # Verify the archive against the published .sha256 sidecar before extracting.
   $expected = ((Get-Content -Path $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()

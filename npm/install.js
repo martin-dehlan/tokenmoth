@@ -1,9 +1,10 @@
 // postinstall: download the prebuilt `tokenmoth` binary for this platform and
 // drop it into vendor/. Zero runtime deps — uses node https + the system `tar`
-// (present on macOS, Linux, and Windows 10+). The repo stays private; only the
-// public release artifacts are fetched.
+// (present on macOS, Linux, and Windows 10+). Artifacts come from the public
+// GitHub Release matching this package's version (tag cli-v<version>).
 //
-// Override the source with TOKENMOTH_DIST_BASE (e.g. point at the raw S3 URL).
+// Override the source with TOKENMOTH_DIST_BASE: a base URL serving
+// <base>/<artifact> and <base>/<artifact>.sha256 (e.g. a self-hosted mirror).
 // Skip the download entirely with TOKENMOTH_SKIP_DOWNLOAD=1 (CI / offline).
 "use strict";
 
@@ -16,11 +17,19 @@ const { execFileSync } = require("child_process");
 
 const PKG_VERSION = require("./package.json").version;
 
-// Branded dist domain (CloudFront → S3, see issue #124). Raw S3 stays as a
-// transitional fallback if the branded host can't be reached.
-const PRIMARY_BASE =
-  process.env.TOKENMOTH_DIST_BASE || "https://get.tokenmoth.com";
-const FALLBACK_BASE = "https://tokenmoth-dist.s3.eu-central-1.amazonaws.com";
+const RELEASES = "https://github.com/martin-dehlan/tokenmoth/releases";
+
+// Ordered download sources. The release pinned to this package's version comes
+// first; "latest" is a fallback for a version whose release is missing.
+function sources() {
+  if (process.env.TOKENMOTH_DIST_BASE) {
+    return [{ base: process.env.TOKENMOTH_DIST_BASE.replace(/\/+$/, ""), pinned: false }];
+  }
+  return [
+    { base: `${RELEASES}/download/cli-v${PKG_VERSION}`, pinned: true },
+    { base: `${RELEASES}/latest/download`, pinned: false },
+  ];
+}
 
 // node platform/arch → Rust target triple (matches release.yml artifact names).
 const TARGETS = {
@@ -42,7 +51,7 @@ function fail(msg) {
   process.exit(1);
 }
 
-// GET with redirect following (CloudFront/S3 may 30x). Resolves to a Buffer.
+// GET with redirect following (GitHub release assets 302 to a CDN). Resolves to a Buffer.
 function download(url, redirects = 0) {
   return new Promise((resolve, reject) => {
     if (redirects > 5) return reject(new Error("too many redirects"));
@@ -87,29 +96,23 @@ function verifyChecksum(buf, sidecar, name) {
 
 async function fetchTarball(target) {
   const name = `tokenmoth-${target}.tar.gz`;
-  // Prefer the artifact pinned to this package's version; the un-versioned
-  // "latest" key is a fallback for releases published before versioned keys.
-  const keys = [`releases/v${PKG_VERSION}/${name}`, name];
-  for (const key of keys) {
-    for (const base of [PRIMARY_BASE, FALLBACK_BASE]) {
-      const url = `${base}/${key}`;
-      try {
-        process.stdout.write(`→ downloading ${key} from ${base}…\n`);
-        const tarball = await download(url);
-        const sidecar = await download(`${url}.sha256`);
-        verifyChecksum(tarball, sidecar, key);
-        process.stdout.write("  ✓ sha256 verified\n");
-        return tarball;
-      } catch (err) {
-        process.stderr.write(`  ${base}/${key} failed: ${err.message}\n`);
+  for (const { base, pinned } of sources()) {
+    const url = `${base}/${name}`;
+    try {
+      process.stdout.write(`→ downloading ${name} from ${base}…\n`);
+      const tarball = await download(url);
+      const sidecar = await download(`${url}.sha256`);
+      verifyChecksum(tarball, sidecar, name);
+      process.stdout.write("  ✓ sha256 verified\n");
+      return tarball;
+    } catch (err) {
+      process.stderr.write(`  ${url} failed: ${err.message}\n`);
+      if (pinned) {
+        process.stderr.write(
+          `tokenmoth: WARNING — release cli-v${PKG_VERSION} not available; ` +
+            "falling back to the latest release (may not match this package version).\n",
+        );
       }
-    }
-    if (key !== name) {
-      process.stderr.write(
-        `tokenmoth: WARNING — versioned artifact releases/v${PKG_VERSION}/${name} ` +
-          "not available; falling back to the un-versioned \"latest\" artifact " +
-          "(may not match this package version).\n",
-      );
     }
   }
   fail(`could not download ${name} from any source`);

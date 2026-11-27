@@ -1,17 +1,14 @@
 #!/usr/bin/env sh
 # TokenMoth CLI installer (public). Downloads a prebuilt `tokenmoth` binary from
-# the public distribution host (repo stays private; no Rust needed).
+# the latest GitHub Release (no Rust needed).
 #
 #   curl -fsSL https://get.tokenmoth.com/install.sh | sh
 #
 # Env: TOKENMOTH_BIN_DIR  (default ~/.local/bin)
-#      TOKENMOTH_DIST_BASE (override the dist host)
+#      TOKENMOTH_DIST_BASE (override the download base, e.g. a self-hosted mirror)
 set -eu
 
-# Branded dist domain (CloudFront → S3, see issue #124); raw S3 is the
-# transitional fallback if the branded host is unreachable.
-BASE="${TOKENMOTH_DIST_BASE:-https://get.tokenmoth.com}"
-FALLBACK="https://tokenmoth-dist.s3.eu-central-1.amazonaws.com"
+BASE="${TOKENMOTH_DIST_BASE:-https://github.com/martin-dehlan/tokenmoth/releases/latest/download}"
 BINDIR="${TOKENMOTH_BIN_DIR:-$HOME/.local/bin}"
 
 os="$(uname -s)"
@@ -49,10 +46,7 @@ fetch() {
   curl -fSsL "$1/$artifact" -o "$tmp/$artifact" &&
     curl -fSsL "$1/$artifact.sha256" -o "$tmp/$artifact.sha256"
 }
-if ! fetch "$BASE"; then
-  echo "  download from $BASE failed (see curl error above) — falling back to $FALLBACK…" >&2
-  fetch "$FALLBACK"
-fi
+fetch "$BASE" || { echo "tokenmoth: download from $BASE failed (see curl error above)" >&2; exit 1; }
 
 # Verify the tarball against the published checksum before extracting.
 expected="$(awk '{print $1}' "$tmp/$artifact.sha256")"

@@ -48,10 +48,10 @@ usage to the same endpoint, tagged `source=desktop_mcp` (Desktop sessions show a
 ### How it picks a binary
 
 `postinstall` maps `process.platform`/`process.arch` to a Rust target triple and
-fetches `tokenmoth-<target>.tar.gz` from `TOKENMOTH_DIST_BASE`
-(default `https://get.tokenmoth.com`, with the S3 bucket as fallback). Supported:
+fetches `tokenmoth-<target>.tar.gz` (+ `.sha256`) from the GitHub Release matching
+the package version (`cli-v<version>`), falling back to the latest release. Supported:
 macOS (arm64/x64), Linux (arm64/x64), Windows (x64).
 
-Env overrides: `TOKENMOTH_DIST_BASE` (source host), `TOKENMOTH_SKIP_DOWNLOAD=1`
+Env overrides: `TOKENMOTH_DIST_BASE` (download base serving `<base>/<artifact>`, e.g. a mirror), `TOKENMOTH_SKIP_DOWNLOAD=1`
 (skip the fetch, e.g. in CI). Extraction uses the system `tar` (present on macOS,
 Linux, and Windows 10+).

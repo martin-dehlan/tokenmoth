@@ -10,8 +10,8 @@ export const OS_OPTIONS: { id: Os; label: string }[] = [
   { id: "windows", label: "Windows" },
 ];
 
-// Branded dist domain (CloudFront → S3, see issue #124). The raw S3 URL stays
-// as a transitional fallback inside the installers themselves.
+// Branded dist host. Redirects to the installers in the repo and the binaries
+// on GitHub Releases (see next.config.mjs).
 const BASE = "https://get.tokenmoth.com";
 const CURL = `curl -fsSL ${BASE}/install.sh | sh`;
 const PWSH = `irm ${BASE}/install.ps1 | iex`;
