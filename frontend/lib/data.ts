@@ -585,7 +585,7 @@ export async function fetchTrends(accessToken: string, since = "30d"): Promise<T
 }
 
 // ---- consolidated dashboard (GET /v1/dashboard) ---------------------------
-// One request → one Lambda invocation → one DB connection (avoids the session
+// One request → one DB connection (avoids the session
 // pooler's 15-client cap that 4 parallel calls were hitting; see issue #65).
 
 export type HookOverhead = { hook: string; tokens: number; sessions: number };
