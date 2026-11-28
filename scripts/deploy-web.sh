@@ -11,7 +11,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if [ -f "$ROOT/.env.tools" ]; then set -a; . "$ROOT/.env.tools"; set +a; fi
+# A token passed in the environment wins over .env.tools.
+if [ -z "${VERCEL_TOKEN:-}" ] && [ -f "$ROOT/.env.tools" ]; then set -a; . "$ROOT/.env.tools"; set +a; fi
 : "${VERCEL_TOKEN:?set VERCEL_TOKEN}"
 [ -f "$ROOT/.vercel/project.json" ] || { echo "deploy-web: run 'vercel link' at the repo root first" >&2; exit 1; }
 
